@@ -34,9 +34,13 @@ urlpatterns = [
     # Phase 4 — B2B API Infrastructure
     path('api/keys/', include('apps.api_keys.urls')),
 
-    # Future phases — will be uncommented as we go
+    # Phase 5 — Verifications Core
+    path('api/verifications/', include('apps.verifications.urls')),
+
+    # Phase 6 — Webhooks
+    path('api/webhooks/', include('apps.webhooks.urls')),
+
+    # Internal / no user-facing endpoints
     # path('api/bits/', include('apps.bits.urls')),
-    # path('api/verifications/', include('apps.verifications.urls')),
     # path('api/usage/', include('apps.usage.urls')),
-    # path('api/webhooks/', include('apps.webhooks.urls')),
 ]

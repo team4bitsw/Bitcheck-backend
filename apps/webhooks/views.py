@@ -1,3 +1,93 @@
-from django.shortcuts import render
+"""
+Webhook views — HTTP endpoints for receiving webhooks.
 
-# Create your views here.
+Processing rule: the handler does ONLY two things:
+  1. Verify signature
+  2. Insert row into webhook_events
+
+All business logic is deferred to Celery.
+
+Ref: database design doc § 4.8
+"""
+
+import json
+import logging
+from django.http import JsonResponse
+from django.views.decorators.csrf import csrf_exempt
+from django.views.decorators.http import require_POST
+
+from .services import verify_squad_signature, ingest_webhook_event
+from .tasks import process_webhook_event_task
+
+logger = logging.getLogger(__name__)
+
+
+@csrf_exempt
+@require_POST
+def squad_webhook_view(request):
+    """
+    Receive a webhook from Squad payment gateway.
+
+    1. Read raw body
+    2. Verify HMAC-SHA512 signature
+    3. Insert into webhook_events inbox
+    4. Dispatch Celery task for async processing
+    5. Return 200 immediately (Squad expects this)
+
+    The endpoint MUST return 200 quickly. Never do business
+    logic here — that's the Celery worker's job.
+    """
+    try:
+        body = request.body
+        signature = request.headers.get('X-Squad-Encrypted-Body', '')
+
+        # Verify signature
+        if not verify_squad_signature(body, signature):
+            logger.warning('Squad webhook signature verification failed.')
+            return JsonResponse(
+                {'detail': 'Invalid signature.'},
+                status=401,
+            )
+
+        # Parse payload
+        try:
+            payload = json.loads(body)
+        except json.JSONDecodeError:
+            return JsonResponse(
+                {'detail': 'Invalid JSON body.'},
+                status=400,
+            )
+
+        # Extract event type and external ID
+        event_type = payload.get('Event', payload.get('event', 'unknown'))
+        transaction_data = payload.get('data', payload.get('Body', {}))
+        external_id = None
+        if isinstance(transaction_data, dict):
+            external_id = transaction_data.get('transaction_reference', None)
+
+        # Capture relevant headers for replay
+        headers = {
+            'x-squad-encrypted-body': signature,
+            'content-type': request.content_type or '',
+            'user-agent': request.headers.get('User-Agent', ''),
+        }
+
+        # Ingest into inbox
+        event = ingest_webhook_event(
+            source='squad',
+            event_type=event_type,
+            payload=payload,
+            headers=headers,
+            external_id=external_id,
+            signature=signature,
+        )
+
+        # Dispatch for async processing
+        process_webhook_event_task.delay(str(event.id))
+
+        return JsonResponse({'status': 'received', 'event_id': str(event.id)})
+
+    except Exception as e:
+        logger.error(f'Squad webhook handler error: {e}', exc_info=True)
+        # Still return 200 so Squad doesn't retry endlessly
+        return JsonResponse({'status': 'error'}, status=200)

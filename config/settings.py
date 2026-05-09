@@ -235,7 +235,11 @@ CELERY_TASK_SOFT_TIME_LIMIT = 240  # 4 min soft limit
 CELERY_BEAT_SCHEDULE = {
     'subscription-rollover': {
         'task': 'apps.billing.tasks.process_subscription_rollovers',
-        'schedule': 3600,  # every hour (3600 seconds)
+        'schedule': 3600,  # every hour
+    },
+    'webhook-retry': {
+        'task': 'apps.webhooks.tasks.retry_failed_webhooks',
+        'schedule': 21600,  # every 6 hours
     },
 }
 
