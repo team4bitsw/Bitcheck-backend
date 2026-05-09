@@ -22,10 +22,7 @@ RUN pip install --upgrade pip && pip install -r requirements.txt
 COPY . .
 
 # Settings require SECRET_KEY; value here is only for the image build layer.
-RUN SECRET_KEY=__build_only_not_used_at_runtime__ \
-    ALLOWED_HOSTS=localhost \
-    DEBUG=False \
-    python manage.py collectstatic --noinput
+
 
 RUN useradd --create-home --uid 10001 appuser \
     && chown -R appuser:appuser /app
