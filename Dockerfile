@@ -21,8 +21,12 @@ RUN pip install --upgrade pip && pip install -r requirements.txt
 
 COPY . .
 
-# Settings require SECRET_KEY; value here is only for the image build layer.
-
+# Collect static files at build time (whitenoise serves them at runtime).
+# A dummy SECRET_KEY is used because the real one is injected at runtime.
+RUN SECRET_KEY=__build_only__ \
+    ALLOWED_HOSTS=* \
+    DEBUG=True \
+    python manage.py collectstatic --noinput
 
 RUN useradd --create-home --uid 10001 appuser \
     && chown -R appuser:appuser /app
