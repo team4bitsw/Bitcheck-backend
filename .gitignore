@@ -17,7 +17,6 @@ docs/system_documentation.md
 
 # Django
 db.sqlite3
-staticfiles/
 media/
 
 # IDE
