@@ -109,7 +109,7 @@ const handleGoogleSuccess = async (response: CredentialResponse) => {
 
 `POST /api/auth/register/`
 
-**Request:**
+**B2C (Individual) request:**
 ```json
 {
   "email": "user@example.com",
@@ -118,9 +118,36 @@ const handleGoogleSuccess = async (response: CredentialResponse) => {
   "account_type": "individual"
 }
 ```
-- `password`: min 8 characters.
-- `account_type`: `"individual"` or `"organization"`. Defaults to `"individual"`.
-- `full_name`: optional.
+
+**B2B (Organization) request:**
+```json
+{
+  "email": "cto@acme.com",
+  "password": "StrongPass123!",
+  "full_name": "Jane Smith",
+  "account_type": "organization",
+  "organization_name": "Acme Corp",
+  "organization_description": "AI-powered content verification for media companies."
+}
+```
+
+| Field | Required | Notes |
+|---|---|---|
+| `email` | Yes | Must be unique |
+| `password` | Yes | Min 8 characters |
+| `full_name` | No | User's display name |
+| `account_type` | No | `"individual"` (default) or `"organization"` |
+| `organization_name` | B2B only | **Required** when `account_type` is `"organization"` |
+| `organization_description` | No | Free-text description of the company |
+
+> [!IMPORTANT]
+> When `account_type` is `"organization"`, the backend automatically creates:
+> 1. The **User** account
+> 2. An **Organization** (with auto-generated slug from the name)
+> 3. An **admin Membership** linking the user to the org
+> 4. A **TokenWallet** for the user (via signal)
+>
+> This means the user is immediately ready to provision API keys and a virtual account after registration.
 
 **Response (201):** Same `{ "detail", "user" }` shape as Google auth. Session is set automatically.
 

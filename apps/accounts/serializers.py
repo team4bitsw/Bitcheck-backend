@@ -39,7 +39,10 @@ class UserUpdateSerializer(serializers.ModelSerializer):
 class RegisterSerializer(serializers.Serializer):
     """
     Register a new user with email + password.
-    Returns the created user on success.
+
+    For B2B signups (account_type='organization'), also accepts
+    organization_name and organization_description to create the
+    Organization + admin Membership in one step.
     """
 
     email = serializers.EmailField()
@@ -50,19 +53,56 @@ class RegisterSerializer(serializers.Serializer):
         default=User.AccountType.INDIVIDUAL,
     )
 
+    # B2B fields — required when account_type='organization'
+    organization_name = serializers.CharField(
+        required=False, max_length=255, allow_blank=True, default='',
+    )
+    organization_description = serializers.CharField(
+        required=False, allow_blank=True, default='',
+    )
+
     def validate_email(self, value):
         email = value.lower().strip()
         if User.objects.filter(email__iexact=email).exists():
             raise serializers.ValidationError('A user with this email already exists.')
         return email
 
+    def validate(self, attrs):
+        """Ensure org fields are provided for organization accounts."""
+        if attrs.get('account_type') == User.AccountType.ORGANIZATION:
+            org_name = attrs.get('organization_name', '').strip()
+            if not org_name:
+                raise serializers.ValidationError({
+                    'organization_name': 'Organization name is required for B2B accounts.',
+                })
+        return attrs
+
     def create(self, validated_data):
-        return User.objects.create_user(
+        # Pop org fields before creating the user
+        org_name = validated_data.pop('organization_name', '').strip()
+        org_description = validated_data.pop('organization_description', '').strip()
+
+        user = User.objects.create_user(
             email=validated_data['email'],
             password=validated_data['password'],
             full_name=validated_data.get('full_name', ''),
             account_type=validated_data.get('account_type', 'individual'),
         )
+
+        # If B2B, create Organization + admin Membership
+        if validated_data.get('account_type') == User.AccountType.ORGANIZATION and org_name:
+            org = Organization.objects.create(
+                name=org_name,
+                description=org_description,
+                created_by=user,
+            )
+            Membership.objects.create(
+                user=user,
+                organization=org,
+                role=Membership.Role.ADMIN,
+            )
+
+        return user
 
 
 # ============================================================
@@ -124,7 +164,7 @@ class OrganizationSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Organization
-        fields = ['id', 'name', 'slug', 'created_by', 'created_at', 'updated_at']
+        fields = ['id', 'name', 'description', 'slug', 'created_by', 'created_at', 'updated_at']
         read_only_fields = ['id', 'slug', 'created_by', 'created_at', 'updated_at']
 
 
@@ -135,7 +175,7 @@ class OrganizationDetailSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Organization
-        fields = ['id', 'name', 'slug', 'created_by', 'member_count', 'created_at', 'updated_at']
+        fields = ['id', 'name', 'description', 'slug', 'created_by', 'member_count', 'created_at', 'updated_at']
         read_only_fields = fields
 
     def get_member_count(self, obj):
