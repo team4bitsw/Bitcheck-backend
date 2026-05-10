@@ -1,5 +1,5 @@
-# Ensure the Celery app is loaded when Django starts
-# so that @shared_task decorators use it.
-from .celery import app as celery_app
-
-__all__ = ('celery_app',)
+"""
+WSGI imports `config.wsgi` before `django.setup()` runs. Loading Celery here
+pulls Django settings and autodiscovers tasks too early, which can break
+Gunicorn/Cloud Run startup. Celery is wired in `apps.accounts.apps` ready().
+"""

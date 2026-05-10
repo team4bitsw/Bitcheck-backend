@@ -1,9 +1,9 @@
 """
 Celery application for Bitcheck / ProofChain AI.
 
-This module is auto-loaded by Django via config/__init__.py.
-Workers: celery -A config worker -l info
-Beat:    celery -A config beat -l info
+Loaded from apps.accounts.apps.AccountsConfig.ready() after Django setup.
+Workers: celery -A config.celery worker -l info
+Beat:    celery -A config.celery beat -l info
 """
 
 import os

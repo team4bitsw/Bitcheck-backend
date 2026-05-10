@@ -6,3 +6,6 @@ class AccountsConfig(AppConfig):
     name = 'apps.accounts'
     label = 'accounts'
     verbose_name = 'Accounts'
+
+    def ready(self):
+        import config.celery  # noqa: F401 — after django.setup; registers @shared_task
