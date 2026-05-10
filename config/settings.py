@@ -41,6 +41,7 @@ DJANGO_APPS = [
 THIRD_PARTY_APPS = [
     'rest_framework',
     'corsheaders',
+    'drf_spectacular',
 ]
 
 LOCAL_APPS = [
@@ -178,6 +179,7 @@ REST_FRAMEWORK = {
     'DEFAULT_RENDERER_CLASSES': [
         'rest_framework.renderers.JSONRenderer',
     ],
+    'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
     'PAGE_SIZE': 25,
     'DEFAULT_THROTTLE_CLASSES': [
@@ -189,6 +191,19 @@ REST_FRAMEWORK = {
         'user': '120/minute',
     },
     'DATETIME_FORMAT': '%Y-%m-%dT%H:%M:%SZ',
+}
+
+
+# ============================================================
+# drf-spectacular — OpenAPI / Swagger
+# ============================================================
+SPECTACULAR_SETTINGS = {
+    'TITLE': 'Bitcheck AI API',
+    'DESCRIPTION': 'Multi-modal AI verification platform — backend API.',
+    'VERSION': '1.0.0',
+    'SERVE_INCLUDE_SCHEMA': False,
+    'SCHEMA_PATH_PREFIX': '/api/',
+    'COMPONENT_SPLIT_REQUEST': True,
 }
 
 
