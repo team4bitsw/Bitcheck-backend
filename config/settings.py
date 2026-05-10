@@ -21,8 +21,8 @@ load_dotenv()
 # Security
 # ============================================================
 SECRET_KEY = config('SECRET_KEY')
-# 'DEBUG', Iv deleted staticfile, add collectstatic to our dockerfile, ensuring it will run when clour run notices a change on github
-DEBUG = config(default=True, cast=bool)
+#  Iv deleted staticfile, add collectstatic to our dockerfile, ensuring it will run when clour run notices a change on github
+DEBUG = config('DEBUG', default=True, cast=bool)
 ALLOWED_HOSTS = config('ALLOWED_HOSTS', default='', cast=Csv())
 
 
