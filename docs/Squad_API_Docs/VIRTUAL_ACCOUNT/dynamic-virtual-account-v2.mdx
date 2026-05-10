@@ -1,0 +1,313 @@
+---
+sidebar_position: 4
+---
+
+import Accordion from "@site/src/components/Accordion";
+import AccordionCode from "@site/src/components/AccordionCode";
+import {
+  createDynamicVAAccountsResponse,
+  getPoolCountResponse,
+  initiateDynamicVATransactionApi,
+  initiateDynamicVATransactionResponse,
+  reQueryTransactionApi,
+  reQueryTransactionResponse,
+  editAmountOrDurationApi,
+  editAmountOrDurationResponse,
+  simulatePaymentEndpointApi,
+  simulatePaymentEndpointResponse,
+} from "@site/src/data/VirtualAccountsDocs/dva-data";
+import PaymentImg from "/static/img/squad-fav.svg";
+
+# Dynamic Virtual Account
+
+This module contains APIs that allow you generate a pool of Virtual Accounts that can be assigned on a transaction basis. This means that you can set a timer for expiry, a transaction ref, determine the amount to be collected.
+
+Please note that all accounts created will now bear the merchant's business name and no longer SQUAD CHECKOUT as it used to be. The format will now be SQUAD_MERCHANT BUSINESS NAME. (Also note that this doesn't affect already created accounts in the pool).
+
+After creating the pool of accounts, the system automatically assigns accounts from your pool on a transaction basis.
+
+It has various webhook notifications for mismatch, expired and successful transaction as we as a re-query endpoint to see all transactions that have been queued for refunds, and those that have been refunded.
+
+**Please note that to create dynamic virtual accounts for your pools, your KYC account needs to be a GTB account number and is mapped to the BVN provided.**
+
+### Process Flow
+
+1. All accounts must be profiled before you can use this service as it is a restricted service for selected business. Kindly send a mail to help@squadco.com or growth@habaripay.com requesting permission to use this service.
+2. Each merchant is assigned a separate pool of accounts and as such they are expected to create their accounts based on their use case and expected transaction volume.
+3. To initiate a transaction, the merchant is to call the generate Dynamic virtual account endpoint and an account from your own pool will be made available for transaction and will be tied to the amount and duration you set.
+4. Webhook notification is fired for 3 events: success, expired and mismatch.
+5. There is a re-query that shows all payment attempts for a single transaction reference. It returns an array which contains the payment attempts and you can see the various status of either success, expired or mismatch where applicable.
+
+### API KEYS (Test Environment)
+
+1. Create an account on our sandbox environment: sandbox.squadco.com
+2. Share the merchant ID with the Technical Account Managers for Profiling.
+3. Retrieve Authorization keys from the bottom of the Get Started Page.
+
+:::caution Authorization
+Any request made without the authorization key (secret key) will fail with a **401** (Unauthorized) response code.
+:::
+
+:::info
+The authorization key is sent via the request header as Bearer Token Authorization
+:::
+
+**Example:**
+
+Authorization: Bearer sandbox_sk_94f2b798466408ef4d19e848ee1a4d1a3e93f104046f
+​
+
+### Create Dynamic VA Accounts
+
+This allows you create and assign dynamic virtual accounts to your pool. Only one account is generated per request.
+
+<Accordion
+  endpoint={
+    "https://sandbox-api-d.squadco.com/virtual-account/create-dynamic-virtual-account"
+  }
+  method={"POST"}
+  header={
+    "This allows you create and assign dynamic virtual accounts to your pool"
+  }
+/>
+
+<AccordionCode items={createDynamicVAAccountsResponse} />
+
+### Get Pool Count
+
+This API gives you the total count of the virtual accounts you have in your pool.
+
+<Accordion
+  endpoint={
+    "https://sandbox-api-d.squadco.com/virtual-account/count-dynamic-virtual-accounts"
+  }
+  method={"GET"}
+  header={
+    "This API gives you the total count of the virtual accounts you have in your pool"
+  }
+/>
+
+<AccordionCode items={getPoolCountResponse} />
+
+### Initiate Dynamic Virtual Account Transaction
+
+This API allows you generate a Dynamic Virtual Account to be assigned to a customer. This is used to initiate a transaction.
+
+<Accordion
+  items={initiateDynamicVATransactionApi}
+  parameters={true}
+  endpoint={
+    "https://sandbox-api-d.squadco.com/virtual-account/initiate-dynamic-virtual-account"
+  }
+  method={"POST"}
+  header={
+    "This API allows you generate a Dynamic Virtual Account to be assigned to a customer"
+  }
+  summary={
+    "This API allows you generate a Dynamic Virtual Account to be assigned to a customer. This is used to initiate a transaction."
+  }
+/>
+
+<AccordionCode items={initiateDynamicVATransactionResponse} />
+
+#### Sample Request
+
+```js
+{
+    "amount":100,
+    "transaction_ref":"Aq1111BddCDqdddqdqqEw2",
+    "duration":600,
+    "email":"hittommyi02@gmail.com"
+}
+```
+
+### Re-query Transaction
+
+This API allows you re-query a transaction to see its status. It returns an array of all transaction attempts made including those that returned as a mismatch, those that expired and the successful transaction. Ultimately all expired and mismatched transactions will eventually be refunded.
+
+<Accordion
+  items={reQueryTransactionApi}
+  parameters={true}
+  endpoint={
+    "https://sandbox-api-d.squadco.com/virtual-account/get-dynamic-virtual-account-transactions/:transaction_reference"
+  }
+  method={"GET"}
+  header={"This API allows you re-query a transaction to see it's status."}
+  summary={
+    "This API allows you re-query a transaction to see its status. It returns an array of all transaction attempts made including those that returned as a mismatch, those that expired and the successful transaction. Ultimately all expired and mismatched transactions will eventually be refunded."
+  }
+/>
+
+<AccordionCode items={reQueryTransactionResponse} />
+
+### Edit Amount/Duration
+
+This API allows you to edit the amount/duration of a dynamic transaction that has already been initiated.
+It takes the transction reference, the amount and duration.
+
+#### Sample Request
+
+```js
+{
+    "transaction_reference": "ify21",
+    "amount": 5000
+}
+```
+
+<Accordion
+  items={editAmountOrDurationApi}
+  parameters={true}
+  endpoint={
+    "https://sandbox-api-d.squadco.com/virtual-account/update-dynamic-virtual-account-time-and-amount"
+  }
+  method={"PATCH"}
+  header={
+    "This API allows you to edit the amount/duration of a dynamic transaction"
+  }
+/>
+
+<AccordionCode items={editAmountOrDurationResponse} />
+
+### Simulate Payment Endpoint
+
+This API allows you push test transactions. Please note that this APi is to be used only on the sandbox environment.
+
+<Accordion
+  items={simulatePaymentEndpointApi}
+  parameters={true}
+  endpoint={
+    "https://sandbox-api-d.squadco.com/virtual-account/simulate/payment"
+  }
+  method={"POST"}
+  header={
+    "This is to be used only on the sandbox environment to do test transactions. "
+  }
+/>
+
+<AccordionCode items={simulatePaymentEndpointResponse} />
+
+## WEBHOOKS
+
+Webhook Notification is sent for 3 different events/ status
+
+1. Success: first transfer/transaction that is equal to the expected/specified amount and within the set duration.
+2. Mismatch: A transfer that happens within the specified duration but expected amount is not equal to the transfered amount.
+3. Expired: Transaction that happens after the set duration or after a successful transaction has been recorded, it doesn't matter if the transferred amount is equivalent to the expected amount.
+
+**To set your webhook, kindly visit your squad dashboard and go to the merchant setting page you will see a field labelled webhook URL. Only accounts with a valid webhook URL will receive notification.**
+
+#### Sample Webhook Notification (Success)
+
+```js
+{
+  "transaction_status": "SUCCESS",
+  "merchant_reference": "Aq1111BddCDqdddqdqqEw4",
+  "merchant_amount": "100.00",
+  "amount_received": "100.00",
+  "transaction_reference": "REFFX8U72GD6/1691478173792",
+  "email": "igwehifeanyi02@gmail.com",
+  "merchant_id": "SBN1EBZEQ8",
+  "transaction_type": "dynamic_virtual_account",
+  "date": "2023-08-08T07:02:54.052Z"
+}
+```
+
+#### Sample Webhook Notification (Expired)
+
+```js
+{
+  "transaction_status": "EXPIRED",
+  "merchant_reference": "Aq1111BddCDqdddqdqqEw4",
+  "merchant_amount": "100.00",
+  "amount_received": "100.00",
+  "transaction_reference": "REFKGXAMXEDR/1691478179452",
+  "email": "igwehifeanyi02@gmail.com",
+  "merchant_id": "SBN1EBZEQ8",
+  "transaction_type": "dynamic_virtual_account",
+  "date": "2023-08-08T07:02:59.672Z"
+}
+```
+
+#### Sample Webhook Notification (Mismatch)
+
+```js
+{
+  "transaction_status": "MISMATCH",
+  "merchant_reference": "Aq1111BddCDqdddqdqqEw4",
+  "merchant_amount": "100.00",
+  "amount_received": "101.00",
+  "transaction_reference": "REFRQR681DB8/1691478149192",
+  "email": "igwehifeanyi02@gmail.com",
+  "merchant_id": "SBN1EBZEQ8",
+  "transaction_type": "dynamic_virtual_account",
+  "date": "2023-08-08T07:02:29.392Z"
+}
+```
+
+## HASH SIGNATURE VALIDATION
+
+Every webhook request comes with a hash signature on the request header. You are expected as a form of security to create a hash and compare to the hash sent via the header.
+The hash is a sha512 hash of some parameters in the payload using your squad secret/private key.
+
+The signature in the header has the key: **x-squad-encrypted-body** .
+The parameters to be hashed are seen below:
+
+#### Webhook Payload to be hashed
+
+```js
+{
+ transaction_reference: "REF202308010384993",
+ amount_received: "3000",
+ merchant_reference: "test_1",
+}
+```
+
+#### Webhook Error Log
+
+This contains all missed webhook notifications that we didn't get a 200 response for. The aim of this is to mitigate against missed webhooks.
+[Click to open API specifications](https://squadinc.gitbook.io/virtual-accounts/reference/api-specifications#delete-webhook-error-log)
+
+#### Sample Error Log Response for DVA
+
+```js
+{
+    "status": 200,
+    "success": true,
+    "message": "Success",
+    "data": {
+        "count": 2,
+        "rows": [
+            {
+                "id": "2dc56eb3-d997-4e68-adf9-53b603c16a43",
+                "payload": {
+                    "date": "2023-08-09T15:09:54.958Z",
+                    "email": "igwehifeanyi02@gmail.com",
+                    "merchant_id": "SBN1EBZEQ8",
+                    "amount_received": "100.00",
+                    "merchant_amount": "100.00",
+                    "transaction_type": "dynamic_virtual_account",
+                    "merchant_reference": "C2",
+                    "transaction_status": "SUCCESS",
+                    "transaction_reference": "REF7VDV8JV25/1691593794798"
+                },
+                "transaction_ref": "REF7VDV8JV25/1691593794798"
+            },
+            {
+                "id": "b7983af4-ad3e-40ef-91d4-55af04bb2173",
+                "payload": {
+                    "date": "2023-08-09T15:04:41.017Z",
+                    "email": "igwehifeanyi02@gmail.com",
+                    "merchant_id": "SBN1EBZEQ8",
+                    "amount_received": "100.00",
+                    "merchant_amount": "100.00",
+                    "transaction_type": "dynamic_virtual_account",
+                    "merchant_reference": "Cw2",
+                    "transaction_status": "SUCCESS",
+                    "transaction_reference": "REFANGDGNQ1N/1691593480709"
+                },
+                "transaction_ref": "REFANGDGNQ1N/1691593480709"
+            }
+        ]
+    }
+}
+```

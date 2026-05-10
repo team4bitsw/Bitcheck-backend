@@ -59,15 +59,25 @@ def squad_webhook_view(request):
             )
 
         # Extract event type and external ID
-        event_type = payload.get('Event', payload.get('event', 'unknown'))
-        transaction_data = payload.get('data', payload.get('Body', {}))
-        external_id = None
-        if isinstance(transaction_data, dict):
-            external_id = transaction_data.get('transaction_reference', None)
+        # Card webhooks: {Event: "charge_successful", Body: {transaction_ref: ...}}
+        # VA webhooks:   {transaction_reference: ..., channel: "virtual-account", ...}
+        if 'Event' in payload or 'event' in payload:
+            # Card charge webhook
+            event_type = payload.get('Event', payload.get('event', 'unknown'))
+            transaction_data = payload.get('Body', payload.get('data', {}))
+            external_id = transaction_data.get('transaction_ref', None) if isinstance(transaction_data, dict) else None
+        elif payload.get('channel') == 'virtual-account':
+            # Virtual account transfer webhook
+            event_type = 'transfer.successful'
+            external_id = payload.get('transaction_reference', None)
+        else:
+            event_type = 'unknown'
+            external_id = None
 
         # Capture relevant headers for replay
         headers = {
             'x-squad-encrypted-body': signature,
+            'x-squad-signature': request.headers.get('X-Squad-Signature', ''),
             'content-type': request.content_type or '',
             'user-agent': request.headers.get('User-Agent', ''),
         }

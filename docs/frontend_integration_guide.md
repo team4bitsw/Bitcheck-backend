@@ -1,6 +1,6 @@
 # Bitcheck AI — Frontend Integration Guide
 
-> **Last verified:** 2026-05-09 against the live Django codebase.
+> **Last verified:** 2026-05-10 against the live Django codebase.
 > This is the single source of truth for the Next.js frontend team.
 
 ---
@@ -18,6 +18,8 @@
 | Session lifetime | 7 days |
 | CSRF header | `X-CSRFToken` (read from `csrftoken` cookie) |
 | Rate limits | 60/min (anonymous), 120/min (authenticated) |
+| API docs (Swagger) | `/api/docs/` |
+| API docs (ReDoc) | `/api/redoc/` |
 
 > [!IMPORTANT]
 > **Every `fetch` call MUST include `credentials: 'include'`.**
@@ -425,11 +427,56 @@ const pollVerification = async (id: string): Promise<Verification> => {
 
 **404** if the user has no active subscription (edge case — shouldn't happen since one is auto-created on registration).
 
+#### Upgrade to Pro Plan
+
+`POST /api/billing/subscription/upgrade/` — **Requires auth + CSRF.**
+
+Initiates a Squad checkout session with card tokenization. Returns a `checkout_url` that the frontend should redirect the user to.
+
+**Request:**
+```json
+{
+  "callback_url": "https://app.bitcheck.io/billing/success"
+}
+```
+- `callback_url`: optional. The URL Squad redirects to after the user pays.
+
+**Response (200):**
+```json
+{
+  "checkout_url": "https://sandbox-pay.squadco.com/bck_pro_a8f3b2c1d4e5f6g7",
+  "transaction_ref": "bck_pro_a8f3b2c1d4e5f6g7",
+  "subscription_id": "uuid"
+}
+```
+
+**Frontend implementation:**
+```typescript
+const upgradeToPro = async () => {
+  const { checkout_url } = await api('/api/billing/subscription/upgrade/', {
+    method: 'POST',
+    body: JSON.stringify({
+      callback_url: `${window.location.origin}/billing/success`,
+    }),
+  });
+  // Redirect to Squad's payment page
+  window.location.href = checkout_url;
+};
+```
+
+> [!IMPORTANT]
+> After the user pays on Squad's checkout page, they are redirected to the `callback_url`.
+> The subscription is NOT active yet at this point — Squad sends a `charge_successful` webhook to the backend, which activates the subscription and credits 50 bits.
+> **Poll `GET /api/billing/subscription/` every 2 seconds on the success page** until `plan.code` changes from `"free"` to `"pro"`.
+
+**400** if already on Pro.
+**502** if Squad API is unreachable.
+
 #### Cancel Subscription
 
 `POST /api/billing/subscription/cancel/` — **Requires auth + CSRF.**
 
-Sets `cancel_at_period_end = true`. The subscription stays active until the current period ends, then the rollover task cancels it.
+Sets `cancel_at_period_end = true`. The subscription stays active until the current period ends, then the rollover task cancels it. Also cancels the card token on Squad so we can't charge the card again.
 
 **Response (200):**
 ```json
@@ -472,6 +519,95 @@ Sets `cancel_at_period_end = true`. The subscription stays active until the curr
 ```
 
 ### B2B Dashboard Endpoints
+
+#### Provision Virtual Account (Create a Dedicated Bank Account)
+
+`POST /api/bits/virtual-account/provision/` — **Requires auth + CSRF + org admin role.**
+
+Creates a permanent Squad bank account for the organization. Once created, the org can transfer Naira to this account at any time, and the backend will auto-convert to bit tokens.
+
+**Request:**
+```json
+{
+  "bvn": "22110011001",
+  "mobile_num": "08012345678"
+}
+```
+- `bvn`: exactly 11 digits. BVN of the org representative.
+- `mobile_num`: at most 11 digits.
+
+**Response (201):**
+```json
+{
+  "id": "uuid",
+  "account_number": "0733848693",
+  "bank_code": "058",
+  "bank_name": "GTBank",
+  "account_name": "Acme Corp",
+  "customer_identifier": "acme-corp"
+}
+```
+
+**400** if the org already has a virtual account, or if BVN/mobile validation fails.
+**403** if not an org admin.
+
+> [!TIP]
+> Display the `account_number` and `bank_name` prominently on the B2B dashboard. This is the account number the org's finance team will use for bank transfers to top up their wallet.
+
+#### Get Virtual Account Details
+
+`GET /api/bits/virtual-account/` — **Requires auth + org membership.**
+
+**Response (200):**
+```json
+{
+  "id": "uuid",
+  "account_number": "0733848693",
+  "bank_name": "GTBank",
+  "account_name": "Acme Corp",
+  "customer_identifier": "acme-corp",
+  "created_at": "2026-05-10T18:00:00Z"
+}
+```
+
+**404** if no virtual account has been provisioned.
+
+#### Organization Wallet & Top-Up History
+
+`GET /api/bits/wallet/` — **Requires auth + org membership.**
+
+**Response (200):**
+```json
+{
+  "wallet": {
+    "id": "uuid",
+    "balance_bits": 150
+  },
+  "topups": [
+    {
+      "id": "uuid",
+      "amount_naira": 10000,
+      "bits_credited": 100,
+      "rate_naira_per_bit": 100,
+      "status": "credited",
+      "squad_transaction_reference": "REF20260510..._1",
+      "credited_at": "2026-05-10T15:30:00Z",
+      "created_at": "2026-05-10T15:30:00Z"
+    }
+  ],
+  "virtual_account": {
+    "id": "uuid",
+    "account_number": "0733848693",
+    "bank_name": "GTBank",
+    "account_name": "Acme Corp",
+    "customer_identifier": "acme-corp",
+    "created_at": "2026-05-10T12:00:00Z"
+  }
+}
+```
+
+> [!NOTE]
+> `topups` returns the 25 most recent top-ups. `virtual_account` is `null` if no VA has been provisioned yet.
 
 #### List API Keys
 
@@ -566,6 +702,7 @@ All error responses include a `detail` string. Validation errors may include fie
 | `403` | Forbidden (no org, no permission) | Show access-denied state |
 | `404` | Not found | Show empty state |
 | `429` | Rate limited | Show "slow down" toast, retry after delay |
+| `502` | Bad gateway (Squad API down) | Show "try again later" message |
 
 ### 402 Payment Required — Special Handling
 
@@ -634,7 +771,11 @@ or
 | `PATCH` | `/api/auth/me/` | Session | Update profile |
 | `GET` | `/api/billing/plans/` | Public | List all active plans |
 | `GET` | `/api/billing/subscription/` | Session | Current subscription + wallet |
+| `POST` | `/api/billing/subscription/upgrade/` | Session | Initiate Pro upgrade (Squad checkout) |
 | `POST` | `/api/billing/subscription/cancel/` | Session | Cancel at period end |
+| `POST` | `/api/bits/virtual-account/provision/` | Session (admin) | Create Squad VA for org |
+| `GET` | `/api/bits/virtual-account/` | Session | Get org's VA details |
+| `GET` | `/api/bits/wallet/` | Session | Org wallet balance + top-up history |
 | `GET` | `/api/keys/` | Session | List org's API keys |
 | `POST` | `/api/keys/` | Session | Create API key (one-time secret) |
 | `POST` | `/api/keys/<id>/revoke/` | Session | Revoke an API key |
@@ -643,3 +784,6 @@ or
 | `POST` | `/api/verifications/` | Session | Submit a verification |
 | `GET` | `/api/verifications/<id>/` | Session | Get verification detail + results |
 | `POST` | `/api/webhooks/squad/` | HMAC | Squad payment webhook (server-to-server) |
+| `GET` | `/api/schema/` | Public | OpenAPI 3.0 JSON schema |
+| `GET` | `/api/docs/` | Public | Swagger UI (interactive) |
+| `GET` | `/api/redoc/` | Public | ReDoc (read-only docs) |

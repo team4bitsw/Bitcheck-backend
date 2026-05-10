@@ -1,0 +1,997 @@
+---
+sidebar_position: 2
+---
+
+import Tabs from "@theme/Tabs";
+import TabItem from "@theme/TabItem";
+import Accordion from "@site/src/components/Accordion";
+import AccordionCode from "@site/src/components/AccordionCode";
+import {
+  customerModelApi,
+  customerModelResponse,
+  BusinessModelApi,
+  BusinessModelResponse,
+  getWebhookErrorLogApi,
+  getWebhookErrorLogResponse,
+  deleteWebhookErrorLogApi,
+  deleteWebhookErrorLogResponse,
+  queryCustomerTransactionApi,
+  queryAllMerchantTransactionsApi,
+  queryAllMerchantTransactionsMultipleFiltersApi,
+  queryAllMerchantTransactionsMultipleFiltersResponse,
+  customerDetailsByVirtualAccountNumberApi,
+  customerDetailsByVirtualAccountNumberResponse,
+  customerDetailsUsingCustomerIdentifierApi,
+  updateCustomerBVNAndUnfreezeTransactionApi,
+  updateBeneficiaryAccountApi,
+  updateBeneficiaryAccountResponse,
+  simulatePaymentApi,
+  simulatePaymentResponse,
+  queryAllMerchantVirtualAccountsApi,
+} from "../../src/data/VirtualAccountsDocs/data";
+
+# API Specifications
+
+### Specification For Virtual Accounts
+
+#### API KEYS (Test Environment)
+
+1. Create an account on our sandbox environment: sandbox.squadco.com
+2. Retrieve keys from the bottom of the Get Started Page
+
+:::caution
+**Authorization** Any request made without the authorization key will fail with a 401 (Service Not Authorized) response code.
+:::
+
+:::info
+**Authorization** would be done via Headers using Keys gotten from your dashboard.
+:::
+
+**Example:**
+Authorization: Bearer sandbox_sk_94f2b798466408ef4d19e848ee1a4d1a3e93f104046f
+
+This API specification helps you create a virtual account and also integrates payment reconciliation for your customers.
+
+You can also trace payments to virtual accounts and link them up with customer details.
+
+:::note
+**Reconciliation: For instant settlement when using our Virtual Account, All merchant and beneficiary accounts must be GTCO Bank Accounts.**
+:::
+
+### Creating Virtual Account
+
+:::info
+**You need to make a POST Request to a dedicated endpoint** containing your customer information.
+:::
+
+#### IMPORTANT NOTICE
+
+:::note
+**Please note that you are no longer required to pass a prefix when creating virtual accounts. Prefix are now automatically passed on our end. Kindly share your preferred prefix with your Technical Account Manager to configure before going Live. The prefix must be a portion of your business name or abbreviations of your business name as one word.**
+:::
+
+### Customer Model
+
+**This endpoint is used to create virtual account for individuals/customer on your platform. Please note that there is a strict validation of the BVN against the names, Date of Birth and Phone Number. (B2C)**
+
+**The implication of this is that if any of the details mentioned above doesn't tally with what you have on the BVN passed, an account will not be generated.
+Please note that you can create virtual accounts for individuals regardless of the type of bank you provided during KYC.**
+
+<Accordion
+  items={customerModelApi}
+  parameters={true}
+  endpoint={"https://sandbox-api-d.squadco.com/virtual-account"}
+  method={"POST"}
+  header={"Creating Virtual Accounts for Customers"}
+  summary={"*asterisked are required and mandatory."}
+/>
+
+<AccordionCode items={customerModelResponse} />
+
+Response expected from the API to signify if the request received was successful
+
+### Sample Request
+
+```js
+{
+    "customer_identifier": "CCC",
+    "first_name": "BusinessName-Joesph",
+    "last_name": "Ayodele",
+    "mobile_num": "08139011943",
+    "email": "ayo@gmail.com",
+    "bvn": "12343211654",
+    "dob": "30/10/1990",
+    "address": "22 Kota street, UK",
+    "gender": "1",
+    "beneficiary_account": "4920299492"
+}
+```
+
+<Tabs>
+<TabItem value="Successful" label="200: Successful">
+
+```js
+{
+    "customer_identifier": "CCC",
+    "first_name": "BusinessName-Joesph",
+    "last_name": "Ayodele",
+    "mobile_num": "08139011943",
+    "email": "ayo@gmail.com",
+    "bvn": "12343211654",
+    "dob": "30/10/1990",
+    "address": "22 Kota street, UK",
+    "gender": "1",
+    "beneficiary_account": "4920299492"
+}
+```
+
+</TabItem>
+<TabItem value="validation-failure" label="400: Validation Failure">
+
+```js
+{
+    "status": 400,
+    "success": false,
+    "message": "Validation Failure, Customer identifier is required",
+    "data": {}
+}
+```
+
+</TabItem>
+<TabItem value="Restricted" label="401: Restricted">
+
+```js
+{
+    "status": 401,
+    "success": false,
+    "message": "Merchant has been restricted, please contact Habaripay support",
+    "data": {}
+}
+```
+
+</TabItem>
+<TabItem value="not-found" label="404: Not Found">
+
+```js
+{
+    "success": false,
+    "message": "",
+    "data": {}
+}
+```
+
+</TabItem>
+<TabItem value="identity-error" label="424: Identity Error">
+
+```js
+{
+"status": 424,
+"message": "{"status":424,"success":false,"message":"Identity verification failed. Kindly pass a valid Id to continue","data":{}}",
+"data": null
+}
+```
+
+</TabItem>
+</Tabs>
+
+### Business Model
+
+This API allows you to create virtual accounts for your customers who are businesses and not individuals. That is, these customers are actually businesses (B2B) or other merchants.
+Please note that due to CBN's Guidelines on validation before account creation as well as other related Fraud concerns, you are required to request for profiling before you can have access to create accounts for businesses.
+Once profiled, you can go ahead and keep creating accounts for your businesses.
+
+**Please note that to create virtual accounts for BUSINESSES, your KYC account needs to be a GTB account number and is mapped to the BVN provided. This doesn't apply if you are creating for individuals. For clarity: you need GTB if you are creating accounts for other businesses say you want to create an account for Chicken Fish Limited but if you are creating for Individual say Emeka Joseph, you don't necessarily need to have a GTB account.**
+
+### Sample Request
+
+```
+{
+    "customer_identifier": "CCC",
+    "business_name": "Chicken Limited",
+    "mobile_num": "08139011943",
+    "bvn": "22110011001",
+    "beneficiary_account": "4920299492"
+}
+```
+
+<Accordion
+  items={BusinessModelApi}
+  parameters={true}
+  endpoint={"https://sandbox-api-d.squadco.com/virtual-account/business"}
+  method={"POST"}
+  header={"Creating Virtual Account for businesses"}
+/>
+
+<AccordionCode items={BusinessModelResponse} />
+
+### Transaction Notification Service
+
+Upon registration and verification as a merchant, you are to create a Webhook and add on your Squad Dashboard to receive notification on payments.
+
+:::caution
+**WEBHOOK: If a webhook is not provided, notifications won't be sent.**
+:::
+
+:::caution  
+**KINDLY ENSURE YOU HAVE A TRANSACTION REFERENCE CHECKER WHEN IMPLEMENTING WEBHOOKS TO AVOID GIVING DOUBLE VALUE ON TRANSACTIONS.**
+:::
+
+### Webhook Validation
+
+### Method 1 (Hash Comparison)
+
+The webhook notification sent carry the x-squad-signature in the header. The hash value (x-squad-signature) is an HMAC SHA512 signature of the webhook payload signed using your secret key.
+
+You are expected to create a hash and compare the value of the hash created with the hash sent in the header of the POST request sent to your webhook URL.
+
+To create the hash, you use the entire payload sent via the webhook.
+
+### Sample Implementations
+
+<Tabs>
+    <TabItem value="C" label="C#">
+
+```c
+using System;
+using System.Security.Cryptography;
+using System.Text;
+using Newtonsoft.Json.Linq;
+namespace HMacExample
+{
+  class Program {
+    static void Main(string[] args) {
+      String key = "YOUR_SECRET_KEY"; //replace with your squad secret_key
+
+      //Replace with the body of the notification received
+      String webhookPayload = "THE_BODY_OF_THE_WEBHOOK_PAYLOAD YOU RECEIVED";
+      String jsonInput = JsonConvert.SerializeObject(webhookPayload);
+      String result = "";
+      byte[] secretkeyBytes = Encoding.UTF8.GetBytes(key);
+      byte[] inputBytes = Encoding.UTF8.GetBytes(jsonInput);
+      using (var hmac = new HMACSHA512(secretkeyBytes))
+      {
+          byte[] hashValue = hmac.ComputeHash(inputBytes);
+          result = BitConverter.ToString(hashValue).Replace("-", string.Empty);;
+      }
+      Console.WriteLine(result);
+      String x-squad-signature = "Request's header value for x-squad-signature" //replace with the request's header value for x-squad-signature here
+      if(result.Equals(x-squad-signature)) {
+          // you can trust the event came from squad and so you can give value to customer
+      } else {
+          // this request didn't come from Squad, ignore it
+      }
+    }
+  }
+}
+```
+
+</TabItem>
+<TabItem value="js" label="Javascript (Node)">
+
+```js
+const crypto = require("crypto");
+const secret = "Your Squad Secret Key";
+// Using Express
+app.post("/MY-WEBHOOK-URL", function (req, res) {
+  //validate event
+  const hash = crypto
+    .createHmac("sha512", secret)
+    .update(JSON.stringify(req.body))
+    .digest("hex");
+  if (hash == req.headers["x-squad-signature"]) {
+    // you can trust the event came from squad and so you can give value to customer
+  } else {
+    // this request didn't come from Squad, ignore it
+  }
+  res.send(200);
+});
+```
+
+</TabItem>
+<TabItem value="php" label="PHP">
+
+```
+`
+<?php
+if ((strtoupper($_SERVER['REQUEST_METHOD']) != 'POST' ) || !array_key_exists('x-squad-signature', $_SERVER) )
+    exit();
+// Retrieve the request's body
+$input = @file_get_contents("php://input");
+$body = json_decode($input);
+define('SQUAD_SECRET_KEY','YOUR_SECRET_KEY'); //ENTER YOUR SECRET KEY HERE
+
+if($_SERVER['x-squad-signature'] !== hash_hmac('sha512',  json_encode($body, JSON_UNESCAPED_SLASHES), SQUAD_SECRET_KEY))
+// The Webhook request is not from SQUAD
+    exit();
+http_response_code(200);
+// The Webhook request is from SQUAD
+
+exit();
+?>`
+```
+
+</TabItem>
+<TabItem value="java" label="Java">
+
+```java
+package hmacexample;
+import java.io.UnsupportedEncodingException;
+import java.math.BigInteger;
+import java.security.InvalidKeyException;
+import java.security.NoSuchAlgorithmException;
+import javax.crypto.Mac;
+import javax.crypto.spec.SecretKeySpec;
+import org.json.JSONException;
+import org.json.JSONObject;
+public class HMacExample {
+  public static void main(String[] args) throws UnsupportedEncodingException, InvalidKeyException, NoSuchAlgorithmException, JSONException {
+    //This verifies that the request is from Squad
+
+    String key = "YOUR_SECRET_KEY"; //replace with your squad secret_key
+
+    String body = "BODY_OF_THE_WEBHOOK_PAYLOAD"; //Replace with body of the webhook payload
+
+    String result = "";
+    String HMAC_SHA512 = "HmacSHA512";
+    String x-squad-signature = ""; //put in the request's header value for x-squad-signature
+
+    byte [] byteKey = key.getBytes("UTF-8");
+    SecretKeySpec keySpec = new SecretKeySpec(byteKey, HMAC_SHA512);
+    Mac sha512_HMAC = Mac.getInstance(HMAC_SHA512);
+    sha512_HMAC.init(keySpec);
+    byte [] mac_data = sha512_HMAC.
+    doFinal(body.toString().getBytes("UTF-8"));
+    result = String.format("%040x", new BigInteger(1, mac_data));
+    if(result.equals(x-squad-signature)) {
+      // you can trust that this is from squad
+    }else{
+      // this isn't from Squad, ignore it
+    }
+  }
+}
+
+```
+
+</TabItem>
+</Tabs>
+
+### Method 2 (Decryption of Encrypted Body)
+
+To validate the webhook sent to you, you are expected to decrypt the hashed body (encrypted_body) of data sent via the webhook using the Public and Secret Key found on your squad dashboard.
+
+The result of this decryption is to be compared against the body of data sent from the webhook, if they match then you can trust that the notification is from squad and if they don't then you know the notification didn't originate from squad and you are expected to ignore such notifications.
+
+To decrypt the hashed body, kindly visit our encryption and decryption page for sample decryption functions in different languages.
+
+### Sample Webhook Notification
+
+```js
+{
+  "transaction_reference": "REF2023022815174720339_1",
+  "virtual_account_number": "0733848693",
+  "principal_amount": "0.20",
+  "settled_amount": "0.20",
+  "fee_charged": "0.00",
+  "transaction_date": "2023-02-28T00:00:00.000Z",
+  "customer_identifier": "5UMKKK3R",
+  "transaction_indicator": "C",
+  "remarks": "Transfer FROM WILLIAM JAMES | [5UM2B63R] TO CHIZOBA ANTHONY OKOYE",
+  "currency": "NGN",
+  "channel": "virtual-account",
+  "sender_name": "WILLIAM JAMES",
+  "meta": {
+    "freeze_transaction_ref": null,
+    "reason_for_frozen_transaction": null
+  },
+  "encrypted_body": "DiPEa8Z4Cbfiqulhs3Q8lVJXGjMIFzbWwI2g7utVGbiI96TjcbjW+64iQrDR+kbZBwisMLMfB5l+Bn0/9kchGjB+xj6bLc6SnyCaku3pCMKmiVSkr/US1lsk+dBBI53nkGcUFkhige35wBYtXC7IpB/N2DCrzXTW5kEGnr9lCvpEFvDhZzDIUVeUCxV14V92vYYP/8O8Zjj3WR9keUc7Qq0H+fl/jmm7VwCtKMSp0OXNGMVPk5TJkLR52hQ8Rap+oorORLoNau1FRLzA24AW0d+nQfqbI+B4hf5+RztP7F1PpiRlo5qR7EthNpaHW6EMYp9fFUQdJRzsQNLbU/IfnH5oK9zFjHaOfKAa5rnoWP3N5IQjz6wobLq9T2KHei3UpCioFMcKYoigtJxple26auq0vCDkDoalPF6+YaqpuKFWdjX0mLz9+Xh5OCq4AI4u3GhioYFbpAvkrzk/Eyh5OdrEvDDLsbSu8lnXymOoiYXuS1Y4Y5jVZpzAArJ7wX7rdi1KLawHu8/m6fBkQLq/82olUuGLtGdPKF1JZnbv3eAXa7+IMhF4QUvsd52uMRnBdEHXfij+WHp7mz4jMP4Gxsx19Xzt7gyWqBhyswEJobDMSZhk/9GRcETwnT0dlSlWxVOL2pVSzKhc73ASxEQCZCO3/5/i1Nq6qSTjsbplLKuwP2Qr/15rP6TvVWAIpxa8"
+}
+
+```
+
+<br />
+
+:::note
+You are expected to send us a response confirming receipt of the request
+:::
+
+<Tabs>
+<TabItem value="Successful" label="200: Successful">
+
+```js
+
+{
+    response_code:200,
+    transaction_reference: 'unique reference sent through the post',
+    response_description: 'Success'
+}
+
+```
+
+</TabItem>
+
+<TabItem value="validation-failure" label="400: Validation Failure">
+
+```js
+
+{
+    response_code:400,
+    transaction_reference: 'unique reference sent through the post',
+    response_description: 'Validation failure'
+}
+
+```
+
+</TabItem>
+<TabItem value="system-malfunction" label="500: System Malfunction">
+
+```js
+
+{
+    response_code:500,
+    transaction_reference: 'unique reference sent through the post',
+    response_description: 'System malfunction'
+}
+
+```
+
+</TabItem>
+</Tabs>
+
+## WEBHOOK ERROR LOG
+
+This API allows you retrieve all your missed webhook transactions and use it to update your record without manual input.
+
+- The top 100 missed webhook will always be returned by default and it
+- This flow involves integration of two(2) APIs
+- Once you have updated the record of a particular transaction, you are expected to use the second API to delete the record from the error log. If this is not done, the transaction will continuously be returned to you in the first 100 transactions until you delete it.
+- This will only work for those who respond correctly to our webhook calls.
+- **Also, ensure you have a transaction duplicate checker to ensure you don't update a record twice or update a record you have updated using the webhook or the transaction API.**
+
+:::caution
+**Authorization** Any request made without the authorization key (secret key) will fail with a **401** (Unauthorized) response code.
+:::
+
+:::info
+**The authorization key is sent via the request header as Bearer Token Authorization**
+:::
+
+**Example:**
+Authorization: Bearer sandbox_sk_94f2b798466408ef4d19e848ee1a4d1a3e93f104046f
+
+### Get Webhook Error Log
+
+<Accordion
+  items={getWebhookErrorLogApi}
+  parameters={true}
+  endpoint={"https://sandbox-api-d.squadco.com/virtual-account/webhook/logs"}
+  method={"GET"}
+  header={
+    "This API returns an array of transactions from the webhook error log"
+  }
+/>
+
+<AccordionCode items={getWebhookErrorLogResponse} />
+
+### Delete Webhook Error Log
+
+<Accordion
+  items={deleteWebhookErrorLogApi}
+  parameters={true}
+  endpoint={
+    "https://sandbox-api-d.squadco.com/virtual-account/webhook/logs/:transaction_ref"
+  }
+  method={"DELETE"}
+  header={
+    "This API enables you delete a processed transaction from the webhook error log"
+  }
+  summary={
+    "When you delete the transaction from the log, it won't be returned to you again. Failure to delete a transaction will result in the transaction being returned to you in the top 100 transactions returned each time you retry."
+  }
+/>
+
+<AccordionCode items={deleteWebhookErrorLogResponse} />
+
+### Query Customer Transaction by Customer Identifier
+
+This is an endpoint to query the transactions a customer has made. This is done using the customer's identifier which was passed when creating the virtual account.
+
+<Accordion
+  items={queryCustomerTransactionApi}
+  parameters={true}
+  endpoint={
+    "https://sandbox-api-d.squadco.com/virtual-account/customer/transactions/{{customer_identifier}}"
+  }
+  method={"GET"}
+  header={"Query Customer Transactions"}
+  summary={
+    "Note: The customer identifier is to be passed via the endpoint being queried. That is: replace {{customer_identifier}} on the end point with the customer identifier of the customer whose transactions you want to query."
+  }
+/>
+<br />
+
+**Response expected from the API to show queried Virtual Accounts.**
+
+<Tabs>
+<TabItem value="Successful" label="200: Successful">
+
+```js
+{
+    "status": 200,
+    "success": true,
+    "message": "Success",
+    "data": [
+        {
+            "transaction_reference": "74902084jjjfksoi93004891_1",
+            "virtual_account_number": "2224449991",
+            "principal_amount": "30000.00",
+            "settled_amount": "0.00",
+            "fee_charged": "0.00",
+            "transaction_date": "2022-04-21T09:00:00.000Z",
+            "transaction_indicator": "C",
+            "remarks": "Payment from 10A2 to 2224449991",
+            "currency": "NGN",
+            "frozen_transaction": {
+                "freeze_transaction_ref": "afbd9b7f-fb98-41c3-bfe8-dc351cfb45c7",
+                "reason": "Amount above 20000 when BVN not set"
+            },
+            "customer": {
+                "customer_identifier": "SBN1EBZEQ8"
+            }
+        },
+{
+            "transaction_reference": "676767_1",
+            "virtual_account_number": "2224449991",
+            "principal_amount": "1050.00",
+            "settled_amount": "1037.00",
+            "fee_charged": "13.00",
+            "transaction_date": "2022-03-21T09:00:00.000Z",
+            "transaction_indicator": "C",
+            "remarks": "Payment from 10A2 to 2224449991",
+            "currency": "NGN",
+            "froze_transaction": null,
+            "customer": {
+                "customer_identifier": "SBN1EBZEQ8"
+            }
+        }
+    ]
+}
+```
+
+</TabItem>
+<TabItem value="validation-failure" label="400: Validation Failure">
+
+```js
+{
+    "status": 400,
+    "success": false,
+    "message": "Customer identifier or merchant identifier is required",
+    "data": {}
+}
+```
+
+</TabItem>
+<TabItem value="Restricted" label="401: Restricted">
+
+```js
+{
+    "status": 401,
+    "success": false,
+    "message": "Merchant has been restricted, please contact Habaripay support",
+    "data": {}
+}
+```
+
+</TabItem>
+<TabItem value="not-found" label="404: Not Found">
+
+```js
+{
+    "status": 401,
+    "success": false,
+    "message": "",
+    "data": {}
+}
+```
+
+</TabItem>
+</Tabs>
+
+### Query All Merchant's Transactions
+
+This is an endpoint to query all the merchant transactions over a period of time.
+
+<Accordion
+  items={queryAllMerchantTransactionsApi}
+  parameters={true}
+  endpoint={
+    "https://sandbox-api-d.squadco.com/virtual-account/merchant/transactions"
+  }
+  method={"GET"}
+  header={"Query All Transactions"}
+  summary={
+    "Note: The endpoint is to be queried using just the authorization key from the dashboard"
+  }
+/>
+
+<Tabs>
+<TabItem value="SuccessfulMerchant" label="200: Successful">
+
+```js
+
+{
+    "status": 200,
+    "success": true,
+    "message": "Success",
+    "data": [
+        {
+            "transaction_reference": "4894fe1_1",
+            "virtual_account_number": "2244441333",
+            "principal_amount": "5000.00",
+            "settled_amount": "0.00",
+            "fee_charged": "0.00",
+            "transaction_date": "2022-04-21T09:00:00.000Z",
+            "transaction_indicator": "C",
+            "remarks": "Payment from 15B8 to 2244441333",
+            "currency": "NGN",
+            "frozen_transaction": {
+                "freeze_transaction_ref": "afbd9b7f-fb98-41c3-bfe8-dc351cfb45c7",
+                "reason": "Amount above 20000 when BVN not set"
+            },
+            "customer": {
+                "customer_identifier": "SBN1EBZEQ8"
+            }
+        },
+{
+            "transaction_reference": "676767_1",
+            "virtual_account_number": "2224449991",
+            "principal_amount": "30000.00",
+            "settled_amount": "1037.00",
+            "fee_charged": "13.00",
+            "transaction_date": "2022-03-21T09:00:00.000Z",
+            "transaction_indicator": "C",
+            "remarks": "Payment from 10A2 to 2224449991",
+            "currency": "NGN",
+            "froze_transaction": null,
+            "customer": {
+                "customer_identifier": "SBN1EBZEQ8"
+            }
+        }
+    ]
+}
+
+```
+
+</TabItem>
+<TabItem value="validation-failureMerchant" label="400: Validation Failure">
+
+```js
+{
+    "status": 400,
+    "success": false,
+    "message": "Merchant identifier is required",
+    "data": {}
+}
+```
+
+</TabItem>
+<TabItem value="Restricted" label="401: Restricted">
+
+```js
+{
+    "status": 401,
+    "success": false,
+    "message": "Merchant has been restricted, please contact Habaripay support",
+    "data": {}
+}
+```
+
+</TabItem>
+<TabItem value="not-found" label="404: Not Profiled">
+
+```js
+{
+    "status": 404,
+    "success": false,
+    "message": "Merchant is not profiled for this service, please contact Habaripay support",
+    "data": {}
+}
+```
+
+</TabItem>
+</Tabs>
+
+### Query All Merchant Transactions with Multiple Filters
+
+This endpoint allows you query all transactions and filter using multiple parameters like virtual account number, start and end dates, customer Identifier etc
+
+<Accordion
+  items={queryAllMerchantTransactionsMultipleFiltersApi}
+  parameters={true}
+  endpoint={
+    "https://sandbox-api-d.squadco.com/virtual-account/merchant/transactions/all"
+  }
+  method={"GET"}
+  header={"Query All Transactions with Multiple Filters"}
+  summary={
+    "This endpoint allows you query all transactions and filter using multiple parameters like virtual account number, start and end dates, customer Identifier etc"
+  }
+/>
+
+<AccordionCode items={queryAllMerchantTransactionsMultipleFiltersResponse} />
+
+### Get Customer Details by Virtual Account Number
+
+This is an endpoint to retrieve the details of a customer using the Virtual Account Number
+
+<Accordion
+  items={customerDetailsByVirtualAccountNumberApi}
+  parameters={true}
+  endpoint={
+    "https://sandbox-api-d.squadco.com/virtual-account/customer/{{virtual_account_number}}"
+  }
+  method={"GET"}
+  header={"Retrieve Virtual Account Details"}
+  summary={
+    "Note: The virtual account number is to be passed via the endpoint being queried. That is: replace {{virtual_account_number}} on the end point with the virtual account number whose details you want to retrieve."
+  }
+/>
+
+<AccordionCode items={customerDetailsByVirtualAccountNumberResponse} />
+
+### Get Customer Details Using Customer Identifier
+
+This is an endpoint to retrieve the details of a customer'svirtual account using the Customer Identifier
+
+<Accordion
+  items={customerDetailsUsingCustomerIdentifierApi}
+  parameters={true}
+  endpoint={
+    "https://sandbox-api-d.squadco.com/virtual-account/{{customer_identifier}}"
+  }
+  method={"GET"}
+  header={"Retrieve Virtual Account Details"}
+  summary={
+    "Note: The customer_identifier is to be passed via the endpoint being queried. That is: replace {{customer_identifier}} on the end point with the customer identifier of the customer whose virtual account you want to retrieve."
+  }
+/>
+
+<br />
+
+<Tabs>
+<TabItem value="Successful" label="200: Successful">
+
+```js
+{
+    "status": 200,
+    "success": true,
+    "message": "Success",
+    "data": {
+        "first_name": "Wisdom",
+        "last_name": "Trudea",
+        "bank_code": "737",
+        "virtual_account_number": "555666777",
+        "customer_identifier": "10D2",
+        "created_at": "2022-01-13T11:03:54.252Z",
+        "updated_at": "2022-01-13T11:09:51.657Z"
+    }
+}
+
+```
+
+</TabItem>
+<TabItem value="validation-failure" label="400: Validation Failure">
+
+```js
+{
+    "status": 400,
+    "success": false,
+    "message": "Merchant identifier is required",
+    "data": {},
+
+}
+
+```
+
+</TabItem>
+<TabItem value="not-profiled" label="404: Not Profiled">
+
+```js
+{
+    "status": 404,
+    "success": false,
+    "message": "No virtual account is associated",
+    "data": {}
+}
+```
+
+</TabItem>
+</Tabs>
+
+### Update Customer's BVN and Unfreeze Transaction
+
+<Accordion
+  items={updateCustomerBVNAndUnfreezeTransactionApi}
+  parameters={true}
+  endpoint={"https://sandbox-api-d.squadco.com/virtual-account/update/bvn"}
+  method={"PATCH"}
+  header={"Update customer's BVN and unfreeze transaction"}
+/>
+
+<Tabs>
+<TabItem value="Successful" label="200: Successful">
+
+```js
+{
+    "status": 200,
+    "success": true,
+    "message": "Success",
+    "data": {}
+}
+
+```
+
+</TabItem>
+<TabItem value="validation-failure" label="400: Validation Failure">
+
+```js
+{
+    "status": 400,
+    "success": false,
+    "message": "BVN verification failed",
+    "data": {}
+}
+
+```
+
+</TabItem>
+<TabItem value="not-updated" label="424: Updated Error">
+
+```js
+{
+    "status": 424,
+    "success": false,
+    "message": "An error occurred while trying to update customer's bvn",
+    "data": {}
+}
+```
+
+</TabItem>
+
+<TabItem value="conflict" label="409: Conflict">
+
+```js
+{
+    "status": 409,
+    "success": false,
+    "message": "Customer's first_name & last_name didn't match or phone_number didn't  match.",
+    "data": {}
+}
+```
+
+</TabItem>
+</Tabs>
+
+### Query All Merchant's Virtual Accounts
+
+This is an endpoint to look-up the virtual account numbers related to a merchant.
+
+<Accordion
+  items={queryAllMerchantVirtualAccountsApi}
+  parameters={true}
+  endpoint={
+    "https://sandbox-api-d.squadco.com/virtual-account/merchant/accounts"
+  }
+  method={"GET"}
+  header={"Find All Virtual Account Number by Merchant"}
+  summary={
+    "This is an endpoint for merchants to query and retrieve all their virtual account."
+  }
+/>
+
+<Tabs>
+<TabItem value="Successful" label="200: Successful">
+
+```js
+{
+    "status": 200,
+    "success": true,
+    "message": "Success",
+    "data": [
+        {
+            "bank_code": "058",
+            "virtual_account_number": "2224449991",
+            "beneficiary_account": "4829023412",
+            "created_at": "2022-02-09T16:02:39.170Z",
+            "updated_at": "2022-02-09T16:02:39.170Z",
+            "customer": {
+                "first_name": "Ifeanyi",
+                "last_name": "Igweh",
+                "customer_identifier": "10A2"
+            }
+        },
+        {
+            "bank_code": "058",
+            "virtual_account_number": "111444999",
+            "beneficiary_account": "9829023411",
+            "created_at": "2022-02-09T16:02:39.170Z",
+            "updated_at": "2022-02-09T16:02:39.170Z",
+            "customer": {
+                "first_name": "Paul",
+                "last_name": "Aroso",
+                "customer_identifier": "10B2"
+            }
+        }
+    ]
+}
+
+```
+
+</TabItem>
+<TabItem value="not-profiled" label="404: Not Profiled">
+
+```js
+{
+    "status": 400,
+    "success": false,
+    "message": "Merchant identifier is required",
+    "data": {},
+}
+
+```
+
+</TabItem>
+</Tabs>
+
+### Update Beneficiary Account
+
+#### Sample Request
+
+```js
+{
+    "beneficiary_account":"1111111111",
+    "virtual_account_number": "4683366555"
+}
+
+```
+
+<Accordion
+  items={updateBeneficiaryAccountApi}
+  parameters={true}
+  endpoint={
+    "https://sandbox-api-d.squadco.com/virtual-account/update/beneficiary/account"
+  }
+  method={"PATCH"}
+  header={"This is used to update beneficiary account"}
+/>
+
+<AccordionCode items={updateBeneficiaryAccountResponse} />
+
+#### Simulate Payment
+
+This is an endpoint to simulate payments
+
+<Accordion
+  items={simulatePaymentApi}
+  parameters={true}
+  endpoint={
+    "https://sandbox-api-d.squadco.com/virtual-account/simulate/payment"
+  }
+  method={"POST"}
+  header={"Simulate Payment"}
+  summary={
+    "This is an endpoint to simulate payment *asterisks are required and mandatory."
+  }
+/>
+
+<AccordionCode items={simulatePaymentResponse} />
+
+### Go Live
+
+To go live, simply:
+
+1. Change the base URL for your endpoints from sandbox-api-d.squadco.com to
+   api-d.squadco.com
+2. Sign up on our Live Environment
+3. Complete your KYC
+4. Share the Merchant ID with the Technical Account Manager for Profiling
+5. Use the secret keys provided on the dashboard to authenticate your live transactions

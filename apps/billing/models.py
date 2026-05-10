@@ -141,6 +141,10 @@ class Subscription(models.Model):
     squad_customer_id = models.CharField(
         max_length=255, null=True, blank=True,
     )
+    squad_card_token_id = models.CharField(
+        max_length=255, null=True, blank=True,
+        help_text='Card token from Squad for recurring charges (returned via webhook).',
+    )
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

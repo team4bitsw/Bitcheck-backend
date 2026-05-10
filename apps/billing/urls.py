@@ -12,5 +12,6 @@ app_name = 'billing'
 urlpatterns = [
     path('plans/', views.plan_list_view, name='plan-list'),
     path('subscription/', views.subscription_detail_view, name='subscription-detail'),
+    path('subscription/upgrade/', views.upgrade_subscription_view, name='subscription-upgrade'),
     path('subscription/cancel/', views.cancel_subscription_view, name='subscription-cancel'),
 ]
