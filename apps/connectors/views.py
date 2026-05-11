@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 from typing import Any
 
@@ -19,7 +20,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from apps.accounts.models import Organization, User
+from apps.accounts.models import Membership, Organization, User
 
 from .exceptions import ConnectorError, InvalidPayload
 from .models import ConnectorEvent, ConnectorInstall, ConnectorType, ConnectorTypeInterest
@@ -36,6 +37,31 @@ from .serializers import (
 from .tasks import process_connector_event
 
 logger = logging.getLogger(__name__)
+
+
+def _resolve_connector_install_organization(request) -> Organization | None:
+    """B2B installs attach to the user's organization (first membership)."""
+    user = request.user
+    if getattr(user, 'account_type', None) != User.AccountType.BUSINESS:
+        return None
+    m = Membership.objects.select_related('organization').filter(user=user).first()
+    if m:
+        return m.organization
+    return None
+
+
+def _oauth_popup_response(status: str, detail: str = '') -> HttpResponse:
+    msg: dict[str, Any] = {'source': 'bitcheck-connector-install', 'status': status}
+    if detail:
+        msg['detail'] = detail
+    payload = json.dumps(msg, separators=(',', ':'))
+    html = (
+        '<!DOCTYPE html><html><body><script>'
+        f'if(window.opener){{window.opener.postMessage({payload},"*");}}'
+        'window.close();'
+        '</script><p>Authorization complete. You can close this window.</p></body></html>'
+    )
+    return HttpResponse(html, content_type='text/html; charset=utf-8')
 
 
 @method_decorator(csrf_exempt, name='dispatch')
@@ -130,7 +156,8 @@ class ConnectorInstallBeginView(APIView):
                 {'detail': 'Unknown connector slug.'},
                 status=status.HTTP_404_NOT_FOUND,
             )
-        payload = adapter.begin_install(request.user, organization=None)
+        org = _resolve_connector_install_organization(request)
+        payload = adapter.begin_install(request.user, organization=org)
         return Response(payload, status=status.HTTP_200_OK)
 
 
@@ -155,7 +182,8 @@ class ConnectorInstallCompleteView(APIView):
                 status=status.HTTP_404_NOT_FOUND,
             )
         body: dict[str, Any] = request.data if isinstance(request.data, dict) else {}
-        install = adapter.complete_install(request.user, body, organization=None)
+        org = _resolve_connector_install_organization(request)
+        install = adapter.complete_install(request.user, body, organization=org)
         return Response(
             ConnectorInstallSerializer(install).data,
             status=status.HTTP_200_OK,
@@ -163,20 +191,62 @@ class ConnectorInstallCompleteView(APIView):
 
 
 class ConnectorOAuthCallbackView(APIView):
-    """OAuth return URL placeholder — providers redirect here with ?code=&state=."""
+    """OAuth return URL — Google redirects here with ?code=&state=."""
 
     authentication_classes = []
     permission_classes = []
 
     def get(self, request, slug: str):
-        html = (
-            '<!DOCTYPE html><html><body><script>'
-            'if(window.opener){window.opener.postMessage('
-            '{"source":"bitcheck-connector-install","status":"ok"}, "*");}'
-            'window.close();'
-            '</script><p>Authorization complete. You can close this window.</p></body></html>'
-        )
-        return HttpResponse(html, content_type='text/html; charset=utf-8')
+        oauth_error = request.GET.get('error')
+        if oauth_error:
+            desc = request.GET.get('error_description') or oauth_error
+            return _oauth_popup_response('error', desc)
+        code = request.GET.get('code')
+        state = request.GET.get('state')
+        if not code or not state:
+            return _oauth_popup_response('error', 'Missing authorization code or state.')
+
+        try:
+            adapter = get_adapter(slug)
+        except ConnectorError:
+            return _oauth_popup_response('error', 'Unknown connector.')
+
+        from apps.connectors.adapters.gmail.oauth import parse_oauth_state
+
+        try:
+            claims = parse_oauth_state(str(state))
+        except InvalidPayload as e:
+            return _oauth_popup_response('error', str(e))
+
+        if claims.get('slug') != slug:
+            return _oauth_popup_response('error', 'OAuth state does not match connector.')
+
+        try:
+            user = User.objects.get(pk=claims['user_id'])
+        except User.DoesNotExist:
+            return _oauth_popup_response('error', 'User not found for this OAuth session.')
+
+        org = None
+        oid = claims.get('org_id')
+        if oid:
+            try:
+                org = Organization.objects.get(pk=oid)
+            except Organization.DoesNotExist:
+                return _oauth_popup_response('error', 'Organization not found for this OAuth session.')
+
+        try:
+            adapter.complete_install(
+                user,
+                {'code': str(code), 'state': str(state)},
+                organization=org,
+            )
+        except InvalidPayload as e:
+            return _oauth_popup_response('error', str(e))
+        except Exception:
+            logger.exception('OAuth callback failed slug=%s', slug)
+            return _oauth_popup_response('error', 'Could not complete connector installation.')
+
+        return _oauth_popup_response('ok')
 
 
 class ConnectorInstallDetailView(APIView):

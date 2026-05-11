@@ -319,6 +319,14 @@ CONNECTORS_DEFAULT_RATE_LIMIT_PER_TYPE = config(
     cast=int,
 )
 
+# Google OAuth (Gmail connector install)
+GOOGLE_OAUTH_CLIENT_ID = config('GOOGLE_OAUTH_CLIENT_ID', default='').strip()
+GOOGLE_OAUTH_CLIENT_SECRET = config('GOOGLE_OAUTH_CLIENT_SECRET', default='').strip()
+GOOGLE_OAUTH_REDIRECT_URI = config(
+    'GOOGLE_OAUTH_REDIRECT_URI',
+    default='http://localhost:8000/api/connectors/oauth/gmail/callback/',
+).strip()
+
 _REDIS_CACHE_URL = config('REDIS_CACHE_URL', default='')
 if _REDIS_CACHE_URL:
     CACHES = {
