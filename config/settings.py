@@ -227,7 +227,11 @@ CORS_ALLOW_CREDENTIALS = True  # needed for session cookies
 SESSION_ENGINE = 'django.contrib.sessions.backends.db'
 SESSION_COOKIE_AGE = 60 * 60 * 24 * 7  # 1 week
 SESSION_COOKIE_HTTPONLY = True
-SESSION_COOKIE_SAMESITE = 'Lax'
+# Dev (HTTP): Lax + False. Prod (HTTPS): set Lax/None + True in .env
+SESSION_COOKIE_SAMESITE = config('SESSION_COOKIE_SAMESITE', default='Lax')
+SESSION_COOKIE_SECURE = config('SESSION_COOKIE_SECURE', default=False, cast=bool)
+CSRF_COOKIE_SAMESITE = config('CSRF_COOKIE_SAMESITE', default='Lax')
+CSRF_COOKIE_SECURE = config('CSRF_COOKIE_SECURE', default=False, cast=bool)
 # When frontend is on a different port in dev, cookies need this:
 CSRF_TRUSTED_ORIGINS = config(
     'CORS_ALLOWED_ORIGINS',
