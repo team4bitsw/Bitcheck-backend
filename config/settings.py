@@ -5,6 +5,7 @@ Stack: Django 6, DRF, Celery + Redis, PostgreSQL.
 Config loaded from .env via python-decouple.
 """
 
+import os
 from pathlib import Path
 from decouple import config, Csv
 from dotenv import load_dotenv
@@ -15,7 +16,18 @@ import dj_database_url
 # ============================================================
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-load_dotenv()
+# Always load project-root .env (cwd-independent — running from another folder
+# silently skipped .env before, so flags like SQUAD_VA_DEV_MOCK never applied).
+load_dotenv(BASE_DIR / '.env')
+
+
+def _env_truthy(name: str, *, default: bool = False) -> bool:
+    """Parse common truthy strings; works after load_dotenv populates os.environ."""
+    default_s = 'true' if default else 'false'
+    raw = os.environ.get(name)
+    if raw is None:
+        raw = config(name, default=default_s)
+    return str(raw).strip().lower() in ('1', 'true', 'yes', 'on')
 
 # ============================================================
 # Security
@@ -50,6 +62,7 @@ LOCAL_APPS = [
     'apps.billing',
     'apps.bits',
     'apps.api_keys',
+    'apps.connectors',
     'apps.verifications',
     'apps.usage',
     'apps.webhooks',
@@ -281,6 +294,56 @@ BITCHECK_VERIFICATION_COSTS = {
 
 
 # ============================================================
+# Connectors (Gmail, Slack, Telegram, …)
+# ============================================================
+CONNECTOR_CREDENTIALS_KEY = config(
+    'CONNECTOR_CREDENTIALS_KEY',
+    default='YLuDPrZbz0GWCzAYnnTZaf6Vu0TG3uRbmtdQhTnSzMk=',
+)
+CONNECTORS_PUBLIC_BASE_URL = config(
+    'CONNECTORS_PUBLIC_BASE_URL',
+    default='http://localhost:8000',
+)
+CONNECTORS_OAUTH_STATE_SECRET = config(
+    'CONNECTORS_OAUTH_STATE_SECRET',
+    default=SECRET_KEY,
+)
+CONNECTORS_DEFAULT_RATE_LIMIT_PER_INSTALL = config(
+    'CONNECTORS_DEFAULT_RATE_LIMIT_PER_INSTALL',
+    default=60,
+    cast=int,
+)
+CONNECTORS_DEFAULT_RATE_LIMIT_PER_TYPE = config(
+    'CONNECTORS_DEFAULT_RATE_LIMIT_PER_TYPE',
+    default=1000,
+    cast=int,
+)
+
+# Google OAuth (Gmail connector install)
+GOOGLE_OAUTH_CLIENT_ID = config('GOOGLE_OAUTH_CLIENT_ID', default='').strip()
+GOOGLE_OAUTH_CLIENT_SECRET = config('GOOGLE_OAUTH_CLIENT_SECRET', default='').strip()
+GOOGLE_OAUTH_REDIRECT_URI = config(
+    'GOOGLE_OAUTH_REDIRECT_URI',
+    default='http://localhost:8000/api/connectors/oauth/gmail/callback/',
+).strip()
+
+_REDIS_CACHE_URL = config('REDIS_CACHE_URL', default='')
+if _REDIS_CACHE_URL:
+    CACHES = {
+        'default': {
+            'BACKEND': 'django.core.cache.backends.redis.RedisCache',
+            'LOCATION': _REDIS_CACHE_URL,
+        },
+    }
+else:
+    CACHES = {
+        'default': {
+            'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
+        },
+    }
+
+
+# ============================================================
 # Google OAuth
 # ============================================================
 GOOGLE_CLIENT_ID = config('GOOGLE_CLIENT_ID', default='')
@@ -292,10 +355,10 @@ GOOGLE_CLIENT_ID = config('GOOGLE_CLIENT_ID', default='')
 SQUAD_SECRET_KEY = config('SQUAD_SECRET_KEY', default='').strip()
 SQUAD_WEBHOOK_SECRET = config('SQUAD_WEBHOOK_SECRET', default='').strip()
 SQUAD_BASE_URL = config('SQUAD_BASE_URL', default='https://sandbox-api-d.squadco.com').strip().rstrip('/')
-# DEBUG only: skip Squad API and create a local VA row (for demos when B2B VA is not profiled).
-SQUAD_VA_DEV_MOCK = config('SQUAD_VA_DEV_MOCK', default=False, cast=bool)
-# DEBUG only: skip Squad checkout and return a mock URL (for demos when sandbox returns 403).
-SQUAD_CHECKOUT_DEV_MOCK = config('SQUAD_CHECKOUT_DEV_MOCK', default=False, cast=bool)
+# Skip Squad API and create a local VA row (demos when B2B VA is not profiled). Never enable in production.
+SQUAD_VA_DEV_MOCK = _env_truthy('SQUAD_VA_DEV_MOCK', default=False)
+# Skip Squad checkout and return a mock URL (demos when sandbox returns 403). Never enable in production.
+SQUAD_CHECKOUT_DEV_MOCK = _env_truthy('SQUAD_CHECKOUT_DEV_MOCK', default=False)
 
 
 # ============================================================

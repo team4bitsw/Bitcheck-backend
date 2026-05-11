@@ -17,6 +17,9 @@ django-cors-headers==4.9.0
 djangorestframework==3.17.1
 drf-spectacular==0.29.0
 google-auth==2.52.0
+google-auth-oauthlib==1.2.1
+google-api-python-client==2.165.0
+PyJWT==2.10.1
 gunicorn==23.0.0  # Cloud Run Dockerfile CMD; do not remove
 idna==3.13
 inflection==0.5.1

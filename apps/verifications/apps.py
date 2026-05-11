@@ -6,3 +6,6 @@ class VerificationsConfig(AppConfig):
     name = 'apps.verifications'
     label = 'verifications'
     verbose_name = 'Verifications'
+
+    def ready(self) -> None:
+        import apps.verifications.signals  # noqa: F401
