@@ -294,6 +294,8 @@ SQUAD_WEBHOOK_SECRET = config('SQUAD_WEBHOOK_SECRET', default='').strip()
 SQUAD_BASE_URL = config('SQUAD_BASE_URL', default='https://sandbox-api-d.squadco.com').strip().rstrip('/')
 # DEBUG only: skip Squad API and create a local VA row (for demos when B2B VA is not profiled).
 SQUAD_VA_DEV_MOCK = config('SQUAD_VA_DEV_MOCK', default=False, cast=bool)
+# DEBUG only: skip Squad checkout and return a mock URL (for demos when sandbox returns 403).
+SQUAD_CHECKOUT_DEV_MOCK = config('SQUAD_CHECKOUT_DEV_MOCK', default=False, cast=bool)
 
 
 # ============================================================

@@ -1,7 +1,8 @@
 # Bitcheck AI — Implementation Backlog
 
-> **Last audited:** 2026-05-09 against the Django codebase and `40-database-design.md`.
+> **Last audited:** 2026-05-11 against the live Django codebase.
 > Items listed here are features that are **designed in the spec but not yet implemented**.
+> ~~Struck-through~~ items have been completed since the last audit.
 
 ---
 
@@ -16,25 +17,25 @@
   - `apps/verifications/views.py` — add `upload_url_view()`
   - `apps/verifications/urls.py` — add `path('upload-url/', ...)`
 
-### 2. Pro Plan Upgrade Flow (Squad Checkout Initiation)
-- **What:** `POST /api/billing/subscription/upgrade/` — initiates a Squad payment mandate, creates an `incomplete` subscription, and returns the Squad checkout URL for the frontend to redirect to.
-- **Why missing:** Requires live Squad API credentials (`SQUAD_SECRET_KEY`). The `Subscription` model has `squad_subscription_id` and `squad_customer_id` fields ready, and the webhook handler (`charge.successful`) already knows how to activate the subscription on payment confirmation. But there's no endpoint to **start** the flow.
-- **Blocks:** Pro plan upgrades from the frontend. Free plan works.
-- **Effort:** ~2 hours. Involves calling Squad's `POST /subscription/create` API.
+### ~~2. Pro Plan Upgrade Flow (Squad Checkout Initiation)~~ ✅ DONE
+- **Built in:** `apps/billing/views.py` → `upgrade_subscription_view`, `apps/billing/services.py` → `initiate_pro_checkout`
+- **Endpoints:** `POST /api/billing/subscription/upgrade/`, `POST /api/billing/subscription/cancel/`
+- **Card tokenization** via Squad's `is_recurring: true` flag. Webhook handler stores `squad_card_token_id` for recurring charges.
 
 ---
 
 ## Important (Does Not Block MVP Demo)
 
-### 3. B2B Virtual Account Provisioning Endpoint
-- **What:** `POST /api/billing/virtual-account/` — calls Squad's API to create a virtual bank account for an organization and stores it in the `VirtualAccount` model.
-- **Why missing:** Same as #2 — requires live Squad credentials. The model and webhook processing (bank transfer → TopUp → wallet credit) are fully implemented.
-- **Blocks:** B2B self-service onboarding. Can be worked around by manually inserting `VirtualAccount` rows via Django admin during the demo.
-- **Effort:** ~1 hour.
+### ~~3. B2B Virtual Account Provisioning Endpoint~~ ✅ DONE
+- **Built in:** `apps/bits/views.py`, `apps/bits/va_services.py`, `apps/bits/urls.py`
+- **Endpoints:** `POST /api/bits/virtual-account/provision/`, `GET /api/bits/virtual-account/`, `GET /api/bits/wallet/`
+- **Dev mock mode:** `SQUAD_VA_DEV_MOCK=True` creates local VA rows without calling Squad (for demos when sandbox isn't profiled for B2B).
+- **Webhook handler:** `apps/webhooks/services.py` → `_handle_virtual_account_credit()` converts naira bank transfers to bits.
 
-### 4. Organization CRUD Endpoints
-- **What:** Create organization, invite members, manage roles.
-- **Why missing:** The models (`Organization`, `Membership`) are fully implemented with roles (`admin`, `member`, `viewer`). No user-facing API was built because the phase-by-phase plan prioritized the financial and verification core.
+### 4. Organization Management Endpoints (Invite, Roles, etc.)
+- **What:** Invite members, manage roles (admin/member/viewer), list members, remove members.
+- **Partially done:** Organization creation now happens automatically during B2B registration (`POST /api/auth/register/` with `account_type: "organization"`, `organization_name`, `organization_description`). The `Organization` and `Membership` models are fully implemented.
+- **Still missing:** Invite-by-email, role change, member removal, org settings update.
 - **Blocks:** B2B self-service team management. Can be done via Django admin for the demo.
 - **Effort:** ~2 hours.
 
@@ -46,7 +47,7 @@
 
 ### 6. API Usage Logs Endpoint (B2B Dashboard)
 - **What:** `GET /api/usage/` — list `ApiCall` records for an organization, filterable by date range, api_key, modality.
-- **Why missing:** The `ApiCall` model and logging services (`log_api_call`, `check_idempotency`) are implemented but there's no user-facing endpoint to query them.
+- **Why missing:** The `ApiCall` model and logging services (`log_api_call`, `check_idempotency`) are implemented but there's no user-facing endpoint to query them. `apps/usage/views.py` is still the default Django stub.
 - **Blocks:** B2B usage analytics dashboard. Data is visible in Django admin.
 - **Effort:** ~1 hour.
 
@@ -85,6 +86,6 @@ These items are implemented in code but require external services to be provisio
 | Dependency | Env Vars Needed | What It Unblocks |
 |---|---|---|
 | S3/MinIO | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_S3_ENDPOINT_URL` | File uploads (#1) |
-| Squad API | `SQUAD_SECRET_KEY` (real key, not placeholder) | Pro upgrades (#2), virtual accounts (#3) |
+| Squad API (B2B profiling) | `SQUAD_SECRET_KEY` + Squad sandbox B2B profiling enabled | Virtual account provisioning (workaround: `SQUAD_VA_DEV_MOCK=True`) |
 | Redis | `REDIS_URL` | Celery tasks (verification processing, subscription rollover, webhook retry) |
 | ML/FastAPI service | `ML_SERVICE_BASE_URL` (running service) | Actual verification analysis results |

@@ -16,7 +16,7 @@
 | Content-Type | `application/json` |
 | Auth mechanism | Session cookie (`sessionid`, HttpOnly, `SameSite=Lax`) |
 | Session lifetime | 7 days |
-| CSRF header | `X-CSRFToken` (read from `csrftoken` cookie) |
+| CSRF protection | Not required — handled by `SameSite=Lax` cookies + CORS |
 | Rate limits | 60/min (anonymous), 120/min (authenticated) |
 | API docs (Swagger) | `/api/docs/` |
 | API docs (ReDoc) | `/api/redoc/` |
@@ -35,17 +35,11 @@ export async function api<T = any>(
   endpoint: string,
   options: RequestInit = {},
 ): Promise<T> {
-  const csrfToken = document.cookie
-    .split('; ')
-    .find((row) => row.startsWith('csrftoken='))
-    ?.split('=')[1];
-
   const res = await fetch(`${API_BASE}${endpoint}`, {
     ...options,
     credentials: 'include',
     headers: {
       'Content-Type': 'application/json',
-      ...(csrfToken && { 'X-CSRFToken': csrfToken }),
       ...options.headers,
     },
   });
@@ -456,7 +450,7 @@ const pollVerification = async (id: string): Promise<Verification> => {
 
 #### Upgrade to Pro Plan
 
-`POST /api/billing/subscription/upgrade/` — **Requires auth + CSRF.**
+`POST /api/billing/subscription/upgrade/` — **Requires auth.**
 
 Initiates a Squad checkout session with card tokenization. Returns a `checkout_url` that the frontend should redirect the user to.
 
@@ -501,7 +495,7 @@ const upgradeToPro = async () => {
 
 #### Cancel Subscription
 
-`POST /api/billing/subscription/cancel/` — **Requires auth + CSRF.**
+`POST /api/billing/subscription/cancel/` — **Requires auth.**
 
 Sets `cancel_at_period_end = true`. The subscription stays active until the current period ends, then the rollover task cancels it. Also cancels the card token on Squad so we can't charge the card again.
 
@@ -549,7 +543,7 @@ Sets `cancel_at_period_end = true`. The subscription stays active until the curr
 
 #### Provision Virtual Account (Create a Dedicated Bank Account)
 
-`POST /api/bits/virtual-account/provision/` — **Requires auth + CSRF + org admin role.**
+`POST /api/bits/virtual-account/provision/` — **Requires auth + org admin role.**
 
 Creates a permanent Squad bank account for the organization. Once created, the org can transfer Naira to this account at any time, and the backend will auto-convert to bit tokens.
 
@@ -662,7 +656,7 @@ Creates a permanent Squad bank account for the organization. Once created, the o
 
 #### Create API Key
 
-`POST /api/keys/` — **Requires auth + CSRF + org membership.**
+`POST /api/keys/` — **Requires auth + org membership.**
 
 **Request:**
 ```json
@@ -698,7 +692,7 @@ Creates a permanent Squad bank account for the organization. Once created, the o
 
 #### Revoke API Key
 
-`POST /api/keys/<uuid:id>/revoke/` — **Requires auth + CSRF + org membership.**
+`POST /api/keys/<uuid:id>/revoke/` — **Requires auth + org membership.**
 
 **Response (200):**
 ```json

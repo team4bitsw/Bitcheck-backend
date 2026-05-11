@@ -43,11 +43,29 @@ def initiate_pro_checkout(user, callback_url=None):
     The key difference from a normal payment: `is_recurring: True`.
     This tells Squad to tokenize the card and return a token_id in the
     charge_successful webhook, which we store for future recurring charges.
+
+    Dev mock: If SQUAD_CHECKOUT_DEV_MOCK=True and DEBUG=True, skips the
+    Squad API and returns a mock checkout URL so the flow can be tested
+    locally without Squad sandbox access.
     """
     from apps.billing.models import Plan
 
     pro_plan = Plan.objects.get(code=Plan.Code.PRO)
     transaction_ref = f'bck_pro_{uuid.uuid4().hex[:16]}'
+
+    # Dev mock mode — skip Squad entirely
+    if getattr(settings, 'SQUAD_CHECKOUT_DEV_MOCK', False) and settings.DEBUG:
+        logger.warning(
+            'SQUAD_CHECKOUT_DEV_MOCK is on: returning mock checkout URL '
+            f'for {user.email}, ref={transaction_ref}'
+        )
+        mock_url = callback_url or 'http://localhost:3000/billing/success'
+        # Append the ref so the frontend can correlate
+        separator = '&' if '?' in mock_url else '?'
+        return {
+            'checkout_url': f'{mock_url}{separator}transaction_ref={transaction_ref}&mock=true',
+            'transaction_ref': transaction_ref,
+        }
 
     # Squad expects amounts in kobo (lowest currency unit)
     amount_kobo = pro_plan.recurring_charge_naira * 100
