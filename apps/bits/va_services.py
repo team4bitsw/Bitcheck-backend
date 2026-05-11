@@ -110,7 +110,11 @@ def provision_virtual_account(organization, bvn, mobile_num):
     if VirtualAccount.objects.filter(organization=organization).exists():
         raise ValueError('This organization already has a virtual account.')
 
-    if getattr(settings, 'SQUAD_VA_DEV_MOCK', False) and settings.DEBUG:
+    if getattr(settings, 'SQUAD_VA_DEV_MOCK', False):
+        if not settings.DEBUG:
+            logger.warning(
+                'SQUAD_VA_DEV_MOCK is on while DEBUG is False — mock VA only; disable before production.'
+            )
         logger.warning(
             'SQUAD_VA_DEV_MOCK is on: creating a local virtual account without calling Squad.'
         )
@@ -152,7 +156,15 @@ def provision_virtual_account(organization, bvn, mobile_num):
             ' If this is 403, confirm you use the secret key (sandbox_sk_…), not the public key, '
             'and request B2B virtual-account profiling from Squad for your sandbox merchant.'
         )
-        raise ValueError(f'Payment gateway error ({resp.status_code}): {detail}.{hint}')
+        dev_mock = ''
+        if settings.DEBUG and resp.status_code == 403 and not getattr(
+            settings, 'SQUAD_VA_DEV_MOCK', False
+        ):
+            dev_mock = (
+                ' Local-only: set SQUAD_VA_DEV_MOCK=True in Bitcheck-backend/.env and restart Django '
+                '(ensure .env is loaded from the backend project root, or run manage.py from that folder).'
+            )
+        raise ValueError(f'Payment gateway error ({resp.status_code}): {detail}.{hint}{dev_mock}')
 
     try:
         data = resp.json()

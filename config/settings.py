@@ -5,6 +5,7 @@ Stack: Django 6, DRF, Celery + Redis, PostgreSQL.
 Config loaded from .env via python-decouple.
 """
 
+import os
 from pathlib import Path
 from decouple import config, Csv
 from dotenv import load_dotenv
@@ -15,7 +16,18 @@ import dj_database_url
 # ============================================================
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-load_dotenv()
+# Always load project-root .env (cwd-independent — running from another folder
+# silently skipped .env before, so flags like SQUAD_VA_DEV_MOCK never applied).
+load_dotenv(BASE_DIR / '.env')
+
+
+def _env_truthy(name: str, *, default: bool = False) -> bool:
+    """Parse common truthy strings; works after load_dotenv populates os.environ."""
+    default_s = 'true' if default else 'false'
+    raw = os.environ.get(name)
+    if raw is None:
+        raw = config(name, default=default_s)
+    return str(raw).strip().lower() in ('1', 'true', 'yes', 'on')
 
 # ============================================================
 # Security
@@ -292,8 +304,8 @@ GOOGLE_CLIENT_ID = config('GOOGLE_CLIENT_ID', default='')
 SQUAD_SECRET_KEY = config('SQUAD_SECRET_KEY', default='').strip()
 SQUAD_WEBHOOK_SECRET = config('SQUAD_WEBHOOK_SECRET', default='').strip()
 SQUAD_BASE_URL = config('SQUAD_BASE_URL', default='https://sandbox-api-d.squadco.com').strip().rstrip('/')
-# DEBUG only: skip Squad API and create a local VA row (for demos when B2B VA is not profiled).
-SQUAD_VA_DEV_MOCK = config('SQUAD_VA_DEV_MOCK', default=False, cast=bool)
+# Skip Squad API and create a local VA row (demos when B2B VA is not profiled). Never enable in production.
+SQUAD_VA_DEV_MOCK = _env_truthy('SQUAD_VA_DEV_MOCK', default=False)
 
 
 # ============================================================
