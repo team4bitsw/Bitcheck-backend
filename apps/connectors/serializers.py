@@ -73,3 +73,6 @@ class ConnectorInstallBeginResponseSerializer(serializers.Serializer):
     redirect_url = serializers.URLField(required=False, allow_null=True)
     state = serializers.CharField(required=False, allow_blank=True)
     requires_input = serializers.ListField(required=False, child=serializers.DictField())
+    deep_link = serializers.URLField(required=False, allow_null=True)
+    telegram_deeplink = serializers.CharField(required=False, allow_blank=True)
+    poll_code = serializers.CharField(required=False, allow_blank=True)

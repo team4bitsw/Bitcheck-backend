@@ -89,6 +89,7 @@ class ConnectorAdapter(ABC):
         user,
         *,
         organization=None,
+        options: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         ...
 

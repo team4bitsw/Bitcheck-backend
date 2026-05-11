@@ -304,6 +304,9 @@ CONNECTORS_PUBLIC_BASE_URL = config(
     'CONNECTORS_PUBLIC_BASE_URL',
     default='http://localhost:8000',
 )
+
+# Deep links in outbound emails / Telegram (consumer app origin)
+FRONTEND_APP_BASE_URL = config('FRONTEND_APP_BASE_URL', default='http://localhost:3000').rstrip('/')
 CONNECTORS_OAUTH_STATE_SECRET = config(
     'CONNECTORS_OAUTH_STATE_SECRET',
     default=SECRET_KEY,
@@ -318,6 +321,14 @@ CONNECTORS_DEFAULT_RATE_LIMIT_PER_TYPE = config(
     default=1000,
     cast=int,
 )
+
+# Telegram (shared bot webhook + deep links)
+TELEGRAM_SHARED_BOT_TOKEN = config('TELEGRAM_SHARED_BOT_TOKEN', default='')
+TELEGRAM_SHARED_BOT_SECRET = config('TELEGRAM_SHARED_BOT_SECRET', default='')
+TELEGRAM_SHARED_BOT_USERNAME = config(
+    'TELEGRAM_SHARED_BOT_USERNAME',
+    default='BitcheckBot',
+).strip().lstrip('@')
 
 # Google OAuth (Gmail connector install)
 GOOGLE_OAUTH_CLIENT_ID = config('GOOGLE_OAUTH_CLIENT_ID', default='').strip()

@@ -32,3 +32,9 @@ class QuotaExceeded(ConnectorError):
 
     pass
 
+
+class CommandHandled(ConnectorError):
+    """Webhook produced a synchronous reply (e.g. Telegram /start); no connector event to queue."""
+
+    pass
+

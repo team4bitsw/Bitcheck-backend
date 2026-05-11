@@ -32,6 +32,7 @@ class GmailAdapter(ConnectorAdapter):
         user,
         *,
         organization=None,
+        options: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         state = build_oauth_state(user, organization, slug=self.slug)
         return {'redirect_url': build_auth_url(state)}

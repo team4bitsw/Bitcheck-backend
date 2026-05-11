@@ -32,6 +32,8 @@ class ConnectorType(models.Model):
         BOT_TOKEN = 'bot_token', 'Bot token'
         WEBHOOK_SIGNATURE = 'webhook_signature', 'Webhook signature'
         API_KEY = 'api_key', 'API key'
+        TELEGRAM_SHARED = 'telegram_shared', 'Telegram shared bot'
+        TELEGRAM_DUAL = 'telegram_dual', 'Telegram shared or own bot'
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     slug = models.SlugField(max_length=32, unique=True)
@@ -215,6 +217,45 @@ class ConnectorMessage(models.Model):
 
     def __str__(self):
         return f'{self.kind} ({self.status})'
+
+
+class TelegramLinkCode(models.Model):
+    """One-time deep-link code for linking a Telegram chat to a Bitcheck install (shared bot)."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    code = models.CharField(max_length=64, unique=True, db_index=True)
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='telegram_link_codes',
+    )
+    organization = models.ForeignKey(
+        'accounts.Organization',
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name='telegram_link_codes',
+    )
+    chat_id = models.BigIntegerField(null=True, blank=True)
+    install = models.ForeignKey(
+        ConnectorInstall,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='telegram_link_codes',
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField()
+    used_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = 'telegram_link_codes'
+        indexes = [
+            models.Index(fields=['code', 'expires_at'], name='idx_tl_code_exp'),
+        ]
+
+    def __str__(self):
+        return self.code
 
 
 class ConnectorTypeInterest(models.Model):

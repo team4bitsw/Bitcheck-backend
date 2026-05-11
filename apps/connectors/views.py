@@ -12,7 +12,7 @@ from django.utils import timezone
 from django.utils.decorators import method_decorator
 from django.views import View
 from django.views.decorators.csrf import csrf_exempt
-from drf_spectacular.utils import OpenApiResponse, extend_schema
+from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework import status
 from rest_framework.generics import ListAPIView
 from rest_framework.pagination import PageNumberPagination
@@ -22,7 +22,9 @@ from rest_framework.views import APIView
 
 from apps.accounts.models import Membership, Organization, User
 
-from .exceptions import ConnectorError, InvalidPayload
+from apps.connectors.adapters.telegram.link import poll_link_status
+
+from .exceptions import CommandHandled, ConnectorError, InvalidPayload
 from .models import ConnectorEvent, ConnectorInstall, ConnectorType, ConnectorTypeInterest
 from .permissions import IsConnectorInstallOwner
 from .rate_limit import check_install_limit, check_type_limit
@@ -82,6 +84,8 @@ class ConnectorWebhookView(View):
 
         try:
             ctx, parsed = adapter.parse_event(request)
+        except CommandHandled:
+            return JsonResponse({'status': 'handled'}, status=200)
         except InvalidPayload as e:
             return JsonResponse({'detail': str(e)}, status=400)
         except ConnectorError as e:
@@ -157,8 +161,60 @@ class ConnectorInstallBeginView(APIView):
                 status=status.HTTP_404_NOT_FOUND,
             )
         org = _resolve_connector_install_organization(request)
-        payload = adapter.begin_install(request.user, organization=org)
+        opts: dict[str, Any] = {}
+        if isinstance(request.data, dict):
+            opts = request.data
+        payload = adapter.begin_install(request.user, organization=org, options=opts)
         return Response(payload, status=status.HTTP_200_OK)
+
+
+class TelegramPollView(APIView):
+    """GET /api/connectors/install/telegram/poll/?code= — shared-bot link status for UI polling."""
+
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(name='code', type=str, location=OpenApiParameter.QUERY, required=True),
+        ],
+        responses={200: OpenApiResponse(description='linked, detail, install_id')},
+    )
+    def get(self, request):
+        code = (request.query_params.get('code') or '').strip()
+        if not code:
+            return Response(
+                {'detail': 'code is required.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return Response(poll_link_status(request.user, code), status=status.HTTP_200_OK)
+
+
+class TelegramReconfigureBotView(APIView):
+    """POST — re-apply BotFather commands/description via Telegram Bot API (own-bot installs)."""
+
+    permission_classes = [IsAuthenticated, IsConnectorInstallOwner]
+
+    @extend_schema(request=None, responses={200: OpenApiResponse()})
+    def post(self, request, install_id):
+        try:
+            install = ConnectorInstall.objects.select_related('type').get(pk=install_id)
+        except ConnectorInstall.DoesNotExist:
+            return Response(status=status.HTTP_404_NOT_FOUND)
+        self.check_object_permissions(request, install)
+        if install.type.slug != 'telegram':
+            return Response(
+                {'detail': 'Not a Telegram connection.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        adapter = get_adapter('telegram')
+        try:
+            adapter.reconfigure_bot(install)
+        except InvalidPayload as e:
+            return Response({'detail': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        except RuntimeError as e:
+            logger.warning('telegram reconfigure failed install=%s err=%s', install_id, e)
+            return Response({'detail': str(e)}, status=status.HTTP_502_BAD_GATEWAY)
+        return Response({'status': 'ok'}, status=status.HTTP_200_OK)
 
 
 class ConnectorInstallCompleteView(APIView):

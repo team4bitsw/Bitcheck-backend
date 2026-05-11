@@ -91,6 +91,7 @@ class EchoAdapter(ConnectorAdapter):
         user,
         *,
         organization=None,
+        options: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         base = settings.CONNECTORS_PUBLIC_BASE_URL.rstrip('/')
         return {

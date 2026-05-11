@@ -31,9 +31,14 @@ urlpatterns = [
         name='install-begin',
     ),
     path(
-        'install/<slug:slug>/complete/',
-        views.ConnectorInstallCompleteView.as_view(),
-        name='install-complete',
+        'install/telegram/poll/',
+        views.TelegramPollView.as_view(),
+        name='telegram-poll',
+    ),
+    path(
+        'installs/<uuid:install_id>/telegram/reconfigure/',
+        views.TelegramReconfigureBotView.as_view(),
+        name='telegram-reconfigure',
     ),
     path(
         'oauth/<slug:slug>/callback/',

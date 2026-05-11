@@ -58,22 +58,62 @@ def create_verification_from_connector(
 ) -> 'apps.verifications.models.Verification':
     from apps.verifications.models import Verification
 
-    if content.kind != 'text':
-        raise ValueError(f'Unsupported connector modality in phase 0: {content.kind}')
+    modality_map = {
+        'text': Verification.Modality.TEXT,
+        'image': Verification.Modality.IMAGE,
+        'document': Verification.Modality.DOCUMENT,
+        'audio': Verification.Modality.AUDIO,
+        'video': Verification.Modality.VIDEO,
+    }
+    modality = modality_map.get(content.kind)
+    if modality is None:
+        raise ValueError(f'Unsupported connector modality: {content.kind}')
 
-    if install.user_id:
-        verification = submit_b2c_verification(
-            install.user,
-            'text',
-            text_input=str(content.payload),
-        )
+    if modality == Verification.Modality.TEXT:
+        if install.user_id:
+            verification = submit_b2c_verification(
+                install.user,
+                'text',
+                text_input=str(content.payload),
+            )
+        else:
+            verification = submit_b2b_verification(
+                install.organization,
+                None,
+                'text',
+                text_input=str(content.payload),
+            )
     else:
-        verification = submit_b2b_verification(
-            install.organization,
-            None,
-            'text',
-            text_input=str(content.payload),
+        from apps.verifications.storage_upload import upload_bytes_for_connector_owner
+
+        body: bytes
+        if isinstance(content.payload, bytes):
+            body = content.payload
+        elif isinstance(content.payload, str):
+            body = content.payload.encode('utf-8')
+        else:
+            raise ValueError('File payload must be str or bytes')
+
+        uf = upload_bytes_for_connector_owner(
+            user=install.user,
+            organization=install.organization,
+            data=body,
+            original_filename=content.filename or 'telegram-file.bin',
+            mime_type=content.mime_type or 'application/octet-stream',
         )
+        if install.user_id:
+            verification = submit_b2c_verification(
+                install.user,
+                modality,
+                uploaded_file_id=str(uf.id),
+            )
+        else:
+            verification = submit_b2b_verification(
+                install.organization,
+                None,
+                modality,
+                uploaded_file_id=str(uf.id),
+            )
 
     verification.source = 'connector'
     verification.source_install = install

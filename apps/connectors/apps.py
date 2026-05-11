@@ -10,3 +10,4 @@ class ConnectorsConfig(AppConfig):
         import apps.connectors.signals  # noqa: F401
         from apps.connectors.adapters import echo  # noqa: F401
         from apps.connectors.adapters import gmail  # noqa: F401
+        from apps.connectors.adapters import telegram  # noqa: F401
