@@ -15,4 +15,5 @@ urlpatterns = [
     path('logout/', views.logout_view, name='logout'),
     path('google/', views.google_auth_view, name='google-auth'),
     path('me/', views.me_view, name='me'),
+    path('setup-org/', views.setup_org_view, name='setup-org'),
 ]

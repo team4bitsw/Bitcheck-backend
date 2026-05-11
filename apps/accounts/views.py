@@ -8,11 +8,13 @@ Endpoints:
   POST /api/auth/google/         — Google OAuth id_token → session
   GET  /api/auth/me/             — current user profile
   PATCH /api/auth/me/            — update profile
+  POST /api/auth/setup-org/      — create org + membership (personal → business)
 """
 
 import logging
 from django.conf import settings
 from django.contrib.auth import login, logout
+from django.db import transaction
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes
@@ -22,13 +24,15 @@ from rest_framework.response import Response
 from google.oauth2 import id_token as google_id_token
 from google.auth.transport import requests as google_requests
 
-from .models import User
+from .models import User, Organization, Membership
 from .serializers import (
     RegisterSerializer,
     LoginSerializer,
     GoogleAuthSerializer,
     UserSerializer,
     UserUpdateSerializer,
+    SetupOrgSerializer,
+    OrganizationSerializer,
 )
 
 logger = logging.getLogger(__name__)
@@ -200,6 +204,46 @@ def google_auth_view(request):
 # ============================================================
 # Current User
 # ============================================================
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def setup_org_view(request):
+    """
+    Create an organization and admin membership for the current user.
+
+    For users who signed up as individual (no Membership). Idempotent guard:
+    rejects if the user already has any membership.
+    """
+    serializer = SetupOrgSerializer(data=request.data, context={'request': request})
+    serializer.is_valid(raise_exception=True)
+
+    org_name = serializer.validated_data['organization_name']
+    org_description = serializer.validated_data.get('organization_description', '').strip()
+    user = request.user
+
+    with transaction.atomic():
+        org = Organization.objects.create(
+            name=org_name,
+            description=org_description,
+            created_by=user,
+        )
+        Membership.objects.create(
+            user=user,
+            organization=org,
+            role=Membership.Role.ADMIN,
+        )
+        user.account_type = User.AccountType.BUSINESS
+        user.save(update_fields=['account_type', 'updated_at'])
+
+    return Response(
+        {
+            'detail': 'Organization created.',
+            'organization': OrganizationSerializer(org).data,
+            'user': UserSerializer(user).data,
+        },
+        status=status.HTTP_201_CREATED,
+    )
+
 
 @api_view(['GET', 'PATCH'])
 @permission_classes([IsAuthenticated])

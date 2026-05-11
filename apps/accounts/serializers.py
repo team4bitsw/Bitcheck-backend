@@ -40,7 +40,7 @@ class RegisterSerializer(serializers.Serializer):
     """
     Register a new user with email + password.
 
-    For B2B signups (account_type='organization'), also accepts
+    For B2B signups (account_type='business'), also accepts
     organization_name and organization_description to create the
     Organization + admin Membership in one step.
     """
@@ -53,7 +53,7 @@ class RegisterSerializer(serializers.Serializer):
         default=User.AccountType.INDIVIDUAL,
     )
 
-    # B2B fields — required when account_type='organization'
+    # B2B fields — required when account_type='business'
     organization_name = serializers.CharField(
         required=False, max_length=255, allow_blank=True, default='',
     )
@@ -68,8 +68,8 @@ class RegisterSerializer(serializers.Serializer):
         return email
 
     def validate(self, attrs):
-        """Ensure org fields are provided for organization accounts."""
-        if attrs.get('account_type') == User.AccountType.ORGANIZATION:
+        """Ensure org fields are provided for business accounts."""
+        if attrs.get('account_type') == User.AccountType.BUSINESS:
             org_name = attrs.get('organization_name', '').strip()
             if not org_name:
                 raise serializers.ValidationError({
@@ -90,7 +90,7 @@ class RegisterSerializer(serializers.Serializer):
         )
 
         # If B2B, create Organization + admin Membership
-        if validated_data.get('account_type') == User.AccountType.ORGANIZATION and org_name:
+        if validated_data.get('account_type') == User.AccountType.BUSINESS and org_name:
             org = Organization.objects.create(
                 name=org_name,
                 description=org_description,
@@ -200,3 +200,37 @@ class MembershipSerializer(serializers.ModelSerializer):
             'organization', 'organization_name', 'role', 'created_at',
         ]
         read_only_fields = ['id', 'created_at']
+
+
+# ============================================================
+# Setup organization (post-signup)
+# ============================================================
+
+
+class SetupOrgSerializer(serializers.Serializer):
+    """
+    Create an Organization + admin Membership for an authenticated user
+    who does not already belong to an organization.
+    """
+
+    organization_name = serializers.CharField(max_length=255)
+    organization_description = serializers.CharField(
+        required=False, allow_blank=True, default='',
+    )
+
+    def validate_organization_name(self, value):
+        text = value.strip()
+        if not text:
+            raise serializers.ValidationError('Organization name is required.')
+        return text
+
+    def validate(self, attrs):
+        request = self.context.get('request')
+        if not request or not request.user.is_authenticated:
+            raise serializers.ValidationError({'detail': 'Authentication required.'})
+        user = request.user
+        if Membership.objects.filter(user=user).exists():
+            raise serializers.ValidationError({
+                'detail': 'You already belong to an organization.',
+            })
+        return attrs
