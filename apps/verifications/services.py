@@ -290,6 +290,10 @@ def complete_verification(verification_id, trust_score, result_summary, ml_respo
         f'score={trust_score}, verdict={verdict}, charged={cost} bits'
     )
 
+    from apps.verifications.signals import verification_completed
+
+    verification_completed.send(sender=Verification, verification=verification)
+
     return verification
 
 

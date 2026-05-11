@@ -193,6 +193,23 @@ class Verification(models.Model):
     completed_at = models.DateTimeField(null=True, blank=True)
     deleted_at = models.DateTimeField(null=True, blank=True)
 
+    # Connector tracing (null for web / API-key-only verifications)
+    source = models.CharField(max_length=20, null=True, blank=True)
+    source_install = models.ForeignKey(
+        'connectors.ConnectorInstall',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='verifications',
+    )
+    source_event = models.ForeignKey(
+        'connectors.ConnectorEvent',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='primary_verifications',
+    )
+
     class Meta:
         db_table = 'verifications'
         verbose_name = 'verification'

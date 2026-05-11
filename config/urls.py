@@ -42,6 +42,9 @@ urlpatterns = [
     # Phase 5 — Verifications Core
     path('api/verifications/', include('apps.verifications.urls')),
 
+    # Connectors (catalogue, installs, inbound webhooks)
+    path('api/connectors/', include('apps.connectors.urls')),
+
     # Phase 6 — Webhooks
     path('api/webhooks/', include('apps.webhooks.urls')),
 

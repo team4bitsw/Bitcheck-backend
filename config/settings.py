@@ -62,6 +62,7 @@ LOCAL_APPS = [
     'apps.billing',
     'apps.bits',
     'apps.api_keys',
+    'apps.connectors',
     'apps.verifications',
     'apps.usage',
     'apps.webhooks',
@@ -290,6 +291,48 @@ BITCHECK_VERIFICATION_COSTS = {
     'audio': 5,
     'video': 8,
 }
+
+
+# ============================================================
+# Connectors (Gmail, Slack, Telegram, …)
+# ============================================================
+CONNECTOR_CREDENTIALS_KEY = config(
+    'CONNECTOR_CREDENTIALS_KEY',
+    default='YLuDPrZbz0GWCzAYnnTZaf6Vu0TG3uRbmtdQhTnSzMk=',
+)
+CONNECTORS_PUBLIC_BASE_URL = config(
+    'CONNECTORS_PUBLIC_BASE_URL',
+    default='http://localhost:8000',
+)
+CONNECTORS_OAUTH_STATE_SECRET = config(
+    'CONNECTORS_OAUTH_STATE_SECRET',
+    default=SECRET_KEY,
+)
+CONNECTORS_DEFAULT_RATE_LIMIT_PER_INSTALL = config(
+    'CONNECTORS_DEFAULT_RATE_LIMIT_PER_INSTALL',
+    default=60,
+    cast=int,
+)
+CONNECTORS_DEFAULT_RATE_LIMIT_PER_TYPE = config(
+    'CONNECTORS_DEFAULT_RATE_LIMIT_PER_TYPE',
+    default=1000,
+    cast=int,
+)
+
+_REDIS_CACHE_URL = config('REDIS_CACHE_URL', default='')
+if _REDIS_CACHE_URL:
+    CACHES = {
+        'default': {
+            'BACKEND': 'django.core.cache.backends.redis.RedisCache',
+            'LOCATION': _REDIS_CACHE_URL,
+        },
+    }
+else:
+    CACHES = {
+        'default': {
+            'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
+        },
+    }
 
 
 # ============================================================
