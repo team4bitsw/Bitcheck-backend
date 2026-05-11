@@ -10,10 +10,16 @@ Architectural decisions (per user requirements):
   - NO beneficiary_account → funds pool into our Squad wallet (T+1 settlement)
   - bank_name is derived from Squad's response bank_code (GTBank = 058)
 
+HTTP 403 on POST …/virtual-account/business usually means the merchant is not
+profiled for B2B virtual accounts, or the wrong API key (use secret sandbox_sk_…,
+not the public key). See Squad_API_Docs in this repo.
+
 Ref: docs/Squad_API_Docs/VIRTUAL_ACCOUNT/api-specifications.mdx
 """
 
 import logging
+import uuid
+
 import requests
 from django.conf import settings
 
@@ -31,6 +37,45 @@ def _squad_headers():
     return {
         'Authorization': f'Bearer {settings.SQUAD_SECRET_KEY}',
         'Content-Type': 'application/json',
+    }
+
+
+def _squad_http_detail(resp: requests.Response) -> str:
+    """Best-effort user-facing message from a failed Squad response."""
+    raw = (resp.text or "").strip()
+    try:
+        data = resp.json()
+    except ValueError:
+        return raw[:800] if raw else (resp.reason or str(resp.status_code))
+    for key in ('message', 'detail', 'error', 'description'):
+        val = data.get(key)
+        if isinstance(val, str) and val:
+            return val
+    return raw[:800] if raw else (resp.reason or str(resp.status_code))
+
+
+def _persist_virtual_account(organization, account_number, bank_name, bank_code):
+    """Create VirtualAccount row and return the API-shaped dict."""
+    from apps.bits.models import VirtualAccount
+
+    va = VirtualAccount.objects.create(
+        organization=organization,
+        bank_name=bank_name,
+        account_number=account_number,
+        account_name=organization.name,
+        squad_account_reference=organization.slug,
+    )
+    logger.info(
+        f'Virtual account provisioned: org={organization.slug}, '
+        f'account={account_number}, bank={bank_name}'
+    )
+    return {
+        'id': str(va.id),
+        'account_number': account_number,
+        'bank_code': bank_code,
+        'bank_name': bank_name,
+        'account_name': organization.name,
+        'customer_identifier': organization.slug,
     }
 
 
@@ -65,6 +110,20 @@ def provision_virtual_account(organization, bvn, mobile_num):
     if VirtualAccount.objects.filter(organization=organization).exists():
         raise ValueError('This organization already has a virtual account.')
 
+    if getattr(settings, 'SQUAD_VA_DEV_MOCK', False) and settings.DEBUG:
+        logger.warning(
+            'SQUAD_VA_DEV_MOCK is on: creating a local virtual account without calling Squad.'
+        )
+        account_number = f'8{uuid.uuid4().int % 10**9:09d}'
+        bank_code = '058'
+        bank_name = SQUAD_BANK_CODES.get(bank_code, 'GTBank')
+        return _persist_virtual_account(organization, account_number, bank_name, bank_code)
+
+    if not settings.SQUAD_SECRET_KEY:
+        raise ValueError(
+            'SQUAD_SECRET_KEY is not set. Add your Squad secret key (sandbox_sk_…) to .env.'
+        )
+
     payload = {
         'customer_identifier': organization.slug,
         'business_name': organization.name,
@@ -77,11 +136,29 @@ def provision_virtual_account(organization, bvn, mobile_num):
 
     try:
         resp = requests.post(url, json=payload, headers=_squad_headers(), timeout=15)
-        resp.raise_for_status()
-        data = resp.json()
     except requests.RequestException as e:
         logger.error(f'Squad virtual account creation failed for org {organization.slug}: {e}')
-        raise ValueError(f'Payment gateway error: {e}')
+        raise ValueError(f'Payment gateway error: {e}') from e
+
+    if resp.status_code >= 400:
+        detail = _squad_http_detail(resp)
+        logger.error(
+            'Squad virtual account HTTP %s for org %s: %s',
+            resp.status_code,
+            organization.slug,
+            detail,
+        )
+        hint = (
+            ' If this is 403, confirm you use the secret key (sandbox_sk_…), not the public key, '
+            'and request B2B virtual-account profiling from Squad for your sandbox merchant.'
+        )
+        raise ValueError(f'Payment gateway error ({resp.status_code}): {detail}.{hint}')
+
+    try:
+        data = resp.json()
+    except ValueError as e:
+        logger.error('Squad virtual account: invalid JSON for org %s', organization.slug)
+        raise ValueError('Payment gateway returned invalid JSON.') from e
 
     if not data.get('success', False):
         msg = data.get('message', 'Unknown error')
@@ -97,28 +174,7 @@ def provision_virtual_account(organization, bvn, mobile_num):
 
     bank_name = SQUAD_BANK_CODES.get(bank_code, f'Bank ({bank_code})')
 
-    # Create our local VirtualAccount record
-    va = VirtualAccount.objects.create(
-        organization=organization,
-        bank_name=bank_name,
-        account_number=account_number,
-        account_name=organization.name,
-        squad_account_reference=organization.slug,  # = customer_identifier
-    )
-
-    logger.info(
-        f'Virtual account provisioned: org={organization.slug}, '
-        f'account={account_number}, bank={bank_name}'
-    )
-
-    return {
-        'id': str(va.id),
-        'account_number': account_number,
-        'bank_code': bank_code,
-        'bank_name': bank_name,
-        'account_name': organization.name,
-        'customer_identifier': organization.slug,
-    }
+    return _persist_virtual_account(organization, account_number, bank_name, bank_code)
 
 
 def get_virtual_account_info(organization):
