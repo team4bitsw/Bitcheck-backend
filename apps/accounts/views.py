@@ -11,7 +11,6 @@ Endpoints:
   POST /api/auth/setup-org/      — create org + membership (personal → business)
 """
 
-import logging
 from django.conf import settings
 from django.contrib.auth import login, logout
 from django.db import transaction
@@ -20,6 +19,8 @@ from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
+
+from apps.core.logger import logger
 
 from google.oauth2 import id_token as google_id_token
 from google.auth.transport import requests as google_requests
@@ -35,7 +36,7 @@ from .serializers import (
     OrganizationSerializer,
 )
 
-logger = logging.getLogger(__name__)
+log = logger.child('accounts')
 
 
 # ============================================================
@@ -150,7 +151,7 @@ def google_auth_view(request):
             settings.GOOGLE_CLIENT_ID,
         )
     except ValueError as e:
-        logger.warning(f'Google OAuth token verification failed: {e}')
+        log.warning('google_token_verify_failed', error=str(e))
         return Response(
             {'detail': 'Invalid Google token.'},
             status=status.HTTP_401_UNAUTHORIZED,
@@ -234,6 +235,13 @@ def setup_org_view(request):
         )
         user.account_type = User.AccountType.BUSINESS
         user.save(update_fields=['account_type', 'updated_at'])
+
+    log.info(
+        'setup_org_ok',
+        user_id=str(user.pk),
+        org_id=str(org.pk),
+        org_slug=org.slug,
+    )
 
     return Response(
         {
