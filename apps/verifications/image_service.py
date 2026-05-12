@@ -120,7 +120,53 @@ def verify_image_direct(
     print(f'[IMAGE-VERIFY] File: {image_file.name}, size={image_file.size}, hash={file_hash[:16]}...')
     print(f'[IMAGE-VERIFY] Label: {label or "(none)"}')
 
-    # --- Call ML service ---
+    # --- Mock or Real ML call ---
+    if getattr(settings, 'ML_MOCK_RESPONSE', False):
+        # Return a mock response when ML service is unavailable
+        from .mock_ml import generate_mock_ml_response
+        print(f'[IMAGE-VERIFY] ⚠️ ML_MOCK_RESPONSE=True — returning mock result')
+
+        ml_result = generate_mock_ml_response(
+            filename=image_file.name,
+            file_size_bytes=image_file.size,
+            sha256_hash=file_hash,
+        )
+
+        trust_data = ml_result.get('trust', {})
+        trust_score = trust_data.get('trust_score', 50)
+
+        result_summary = {
+            'label': label or '',
+            'original_filename': image_file.name,
+            'sha256': file_hash,
+            'file_size_bytes': image_file.size,
+            'ml_verification_id': ml_result.get('verification_id'),
+            'input': ml_result.get('input', {}),
+            'model_result': ml_result.get('model_result', {}),
+            'metadata': ml_result.get('metadata', {}),
+            'provenance': ml_result.get('provenance', {}),
+            'visible_watermark': ml_result.get('visible_watermark', {}),
+            'forensics': ml_result.get('forensics', {}),
+            'explainability': ml_result.get('explainability', {}),
+            'trust': trust_data,
+            'risk_flags': ml_result.get('risk_flags', []),
+            'limitations': ml_result.get('limitations', []),
+            '_mock': True,
+        }
+
+        verification = complete_verification(
+            verification_id=verification.id,
+            trust_score=trust_score,
+            result_summary=result_summary,
+            ml_response_raw=ml_result,
+        )
+
+        print(f'[IMAGE-VERIFY] ✅ Mock verification {verification.id} completed: '
+              f'score={trust_score}, verdict={verification.verdict}')
+
+        return verification, ml_result
+
+    # --- Real ML service call ---
     ml_url = f'{settings.ML_SERVICE_BASE_URL}/verify/image'
 
     # Build multipart form data

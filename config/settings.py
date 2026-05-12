@@ -408,6 +408,7 @@ BILLING_INCOMPLETE_CHECKOUT_TTL_HOURS = config(
 # ML / FastAPI Service
 # ============================================================
 ML_SERVICE_BASE_URL = config('ML_SERVICE_BASE_URL', default='http://localhost:8001')
+ML_MOCK_RESPONSE = config('ML_MOCK_RESPONSE', default='False', cast=bool)
 
 
 # ============================================================
