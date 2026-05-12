@@ -60,7 +60,7 @@ def verify_squad_signature(payload_body, signature_header):
     ).hexdigest()
 
     print(f'[SIGNATURE] Computed sig (first 20 chars): {expected[:20]}...')
-    match = hmac.compare_digest(expected, signature_header)
+    match = hmac.compare_digest(expected, signature_header.lower())
     print(f'[SIGNATURE] Match: {match}')
     return match
 
