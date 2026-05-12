@@ -128,9 +128,14 @@ def provision_virtual_account(organization, bvn, mobile_num):
             'SQUAD_SECRET_KEY is not set. Add your Squad secret key (sandbox_sk_…) to .env.'
         )
 
+    # Squad requires business_name to be at least two words
+    biz_name = organization.name.strip()
+    if len(biz_name.split()) < 2:
+        biz_name = f'{biz_name} Ltd'
+
     payload = {
         'customer_identifier': organization.slug,
-        'business_name': organization.name,
+        'business_name': biz_name,
         'mobile_num': mobile_num,
         'bvn': bvn,
         # NO beneficiary_account — funds go to our Squad wallet
