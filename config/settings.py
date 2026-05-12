@@ -373,6 +373,12 @@ SQUAD_BASE_URL = config('SQUAD_BASE_URL', default='https://sandbox-api-d.squadco
 SQUAD_VA_DEV_MOCK = _env_truthy('SQUAD_VA_DEV_MOCK', default=False)
 # Skip Squad checkout and return a mock URL (demos when sandbox returns 403). Never enable in production.
 SQUAD_CHECKOUT_DEV_MOCK = _env_truthy('SQUAD_CHECKOUT_DEV_MOCK', default=False)
+# Abandoned Pro card checkout: ``incomplete`` rows older than this are canceled and a free plan is restored (if nothing else is active).
+BILLING_INCOMPLETE_CHECKOUT_TTL_HOURS = config(
+    'BILLING_INCOMPLETE_CHECKOUT_TTL_HOURS',
+    default=24,
+    cast=int,
+)
 
 
 # ============================================================

@@ -46,6 +46,9 @@ def subscription_detail_view(request):
     ``subscription: null`` with their B2C wallet.
     """
     from apps.bits.services import get_wallet_for_user
+    from apps.billing.subscription_state import reconcile_stale_incomplete_subscriptions
+
+    reconcile_stale_incomplete_subscriptions(request.user)
 
     qs = Subscription.objects.select_related('plan').filter(user=request.user)
 
@@ -92,7 +95,11 @@ def upgrade_subscription_view(request):
     After payment, Squad sends a charge_successful webhook with token_id.
     Our webhook handler activates the subscription and credits bits.
     """
+    from apps.billing.subscription_state import prepare_new_pro_checkout
+
     user = request.user
+
+    prepare_new_pro_checkout(user)
 
     # Check: already on Pro?
     active_sub = Subscription.objects.select_related('plan').filter(

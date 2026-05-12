@@ -337,6 +337,16 @@ def _handle_subscription_charge(event, payload):
         event.save(update_fields=['status', 'processing_error', 'processed_at'])
         return
 
+    if subscription.status == Subscription.Status.CANCELED:
+        event.status = WebhookEvent.Status.IGNORED
+        event.processing_error = (
+            f'Subscription {subscription.id} is canceled; ignoring charge for '
+            f'transaction_ref={transaction_ref}.'
+        )
+        event.processed_at = timezone.now()
+        event.save(update_fields=['status', 'processing_error', 'processed_at'])
+        return
+
     with transaction.atomic():
         if subscription.status == Subscription.Status.INCOMPLETE:
             # First payment — activate the subscription
