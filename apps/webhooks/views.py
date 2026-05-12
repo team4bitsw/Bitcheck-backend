@@ -82,17 +82,24 @@ def squad_webhook_view(request):
         # === STEP 3: Detect event type ===
         # Card webhooks: {Event: "charge_successful", Body: {transaction_ref: ...}}
         # VA webhooks:   {transaction_reference: ..., channel: "virtual-account", ...}
+        # Some VA webhooks may not have 'channel' but will have 'virtual_account_number'
         if 'Event' in payload or 'event' in payload:
             # Card charge webhook
             event_type = payload.get('Event', payload.get('event', 'unknown'))
             transaction_data = payload.get('Body', payload.get('data', {}))
             external_id = transaction_data.get('transaction_ref', None) if isinstance(transaction_data, dict) else None
             print(f'[WEBHOOK] Detected CARD event: type={event_type}, ref={external_id}')
-        elif payload.get('channel') == 'virtual-account':
-            # Virtual account transfer webhook
+        elif (payload.get('channel') == 'virtual-account'
+              or payload.get('virtual_account_number')
+              or (payload.get('transaction_reference') and payload.get('principal_amount'))):
+            # Virtual account transfer webhook — detect by channel OR by VA-specific fields
             event_type = 'transfer.successful'
             external_id = payload.get('transaction_reference', None)
             print(f'[WEBHOOK] Detected VA event: type={event_type}, ref={external_id}')
+            print(f'[WEBHOOK] VA fields: channel={payload.get("channel")}, '
+                  f'va_num={payload.get("virtual_account_number")}, '
+                  f'amount={payload.get("principal_amount")}, '
+                  f'customer={payload.get("customer_identifier")}')
         else:
             event_type = 'unknown'
             external_id = None

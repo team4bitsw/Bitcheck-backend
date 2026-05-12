@@ -205,8 +205,15 @@ def _handle_virtual_account_credit(event, payload):
     account_number = transaction_data.get('virtual_account_number', '')
     customer_identifier = transaction_data.get('customer_identifier', '')
 
+    print(f'[VA-CREDIT] Processing VA credit webhook')
+    print(f'[VA-CREDIT] transaction_reference: {squad_reference}')
+    print(f'[VA-CREDIT] virtual_account_number: {account_number}')
+    print(f'[VA-CREDIT] customer_identifier: {customer_identifier}')
+    print(f'[VA-CREDIT] Full transaction_data keys: {list(transaction_data.keys())}')
+
     # Squad sends amounts as naira strings (e.g., "50.00"), NOT kobo integers
     principal_amount_str = str(transaction_data.get('principal_amount', '0'))
+    print(f'[VA-CREDIT] principal_amount raw: {principal_amount_str}')
     try:
         amount_naira = int(float(principal_amount_str))  # "50.00" -> 50
     except (ValueError, TypeError):
@@ -277,6 +284,8 @@ def _handle_virtual_account_credit(event, payload):
 
         # Credit the org's wallet
         wallet = get_wallet_for_organization(organization)
+        print(f'[VA-CREDIT] Crediting wallet {wallet.id} for org {organization.name}: '
+              f'N{amount_naira} -> {bits} bits (rate=N{rate}/bit)')
         credit_wallet(
             wallet_id=wallet.id,
             amount=bits,
@@ -291,6 +300,8 @@ def _handle_virtual_account_credit(event, payload):
         event.processed_at = timezone.now()
         event.save(update_fields=['status', 'processed_at'])
 
+    print(f'[VA-CREDIT] ✅ VA credit complete: org={organization.name}, '
+          f'N{amount_naira} -> {bits} bits, topup_id={topup.id}')
     logger.info(
         f'VA credit processed: org={organization.name}, '
         f'N{amount_naira} -> {bits} bits (topup={topup.id})'

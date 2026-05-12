@@ -221,20 +221,29 @@ def simulate_va_payment_view(request):
 
     print(f'[SIMULATE] Sending to {url}')
     print(f'[SIMULATE] Payload: {payload}')
+    print(f'[SIMULATE] Headers: Authorization=Bearer {django_settings.SQUAD_SECRET_KEY[:12]}...')
 
     try:
         resp = http_requests.post(url, json=payload, headers=headers, timeout=15)
         print(f'[SIMULATE] Response status: {resp.status_code}')
-        print(f'[SIMULATE] Response body: {resp.text[:500]}')
+        print(f'[SIMULATE] Response headers: {dict(resp.headers)}')
+        print(f'[SIMULATE] Response body (full): {resp.text}')
 
         if resp.status_code in (200, 201):
+            resp_data = resp.json() if resp.text else {}
             return Response({
-                'detail': f'Simulated payment of ₦{amount} to VA {va.account_number}. Webhook will arrive shortly.',
-                'squad_response': resp.json() if resp.text else {},
+                'detail': f'Simulated payment of ₦{amount} to VA {va.account_number}. '
+                          f'A webhook will be sent to your configured webhook URL. '
+                          f'Check Cloud Run logs for [WEBHOOK] entries.',
+                'squad_response': resp_data,
+                'note': 'If bits do not update, check: '
+                        '1) Your webhook URL is set in Squad dashboard, '
+                        '2) Cloud Run logs show a [WEBHOOK] entry, '
+                        '3) Try GET /api/webhooks/squad/logs/ to check Squad webhook error log.',
             })
         else:
             return Response(
-                {'detail': f'Squad simulate failed ({resp.status_code}): {resp.text[:300]}'},
+                {'detail': f'Squad simulate failed ({resp.status_code}): {resp.text[:500]}'},
                 status=status.HTTP_502_BAD_GATEWAY,
             )
 
