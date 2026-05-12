@@ -34,7 +34,7 @@
 
 ### 4. Organization Management Endpoints (Invite, Roles, etc.)
 - **What:** Invite members, manage roles (admin/member/viewer), list members, remove members.
-- **Partially done:** Organization creation now happens automatically during B2B registration (`POST /api/auth/register/` with `account_type: "organization"`, `organization_name`, `organization_description`). The `Organization` and `Membership` models are fully implemented.
+- **Partially done:** Organization creation now happens automatically during B2B registration (`POST /api/auth/register/` with `account_type: "business"`, `organization_name`, `organization_description`). The `Organization` and `Membership` models are fully implemented.
 - **Still missing:** Invite-by-email, role change, member removal, org settings update.
 - **Blocks:** B2B self-service team management. Can be done via Django admin for the demo.
 - **Effort:** ~2 hours.

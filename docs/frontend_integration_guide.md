@@ -113,13 +113,13 @@ const handleGoogleSuccess = async (response: CredentialResponse) => {
 }
 ```
 
-**B2B (Organization) request:**
+**B2B (Business) request:**
 ```json
 {
   "email": "cto@acme.com",
   "password": "StrongPass123!",
   "full_name": "Jane Smith",
-  "account_type": "organization",
+  "account_type": "business",
   "organization_name": "Acme Corp",
   "organization_description": "AI-powered content verification for media companies."
 }
@@ -130,12 +130,12 @@ const handleGoogleSuccess = async (response: CredentialResponse) => {
 | `email` | Yes | Must be unique |
 | `password` | Yes | Min 8 characters |
 | `full_name` | No | User's display name |
-| `account_type` | No | `"individual"` (default) or `"organization"` |
-| `organization_name` | B2B only | **Required** when `account_type` is `"organization"` |
+| `account_type` | No | `"individual"` (default) or `"business"` |
+| `organization_name` | B2B only | **Required** when `account_type` is `"business"` |
 | `organization_description` | No | Free-text description of the company |
 
 > [!IMPORTANT]
-> When `account_type` is `"organization"`, the backend automatically creates:
+> When `account_type` is `"business"`, the backend automatically creates:
 > 1. The **User** account
 > 2. An **Organization** (with auto-generated slug from the name)
 > 3. An **admin Membership** linking the user to the org
@@ -144,6 +144,31 @@ const handleGoogleSuccess = async (response: CredentialResponse) => {
 > This means the user is immediately ready to provision API keys and a virtual account after registration.
 
 **Response (201):** Same `{ "detail", "user" }` shape as Google auth. Session is set automatically.
+
+#### Setup Organization (for existing users)
+
+`POST /api/auth/setup-org/` — **Requires auth.**
+
+Lets an existing individual user create an organization after signup (e.g., they signed up as individual first, then want to create a business).
+
+**Request:**
+```json
+{
+  "organization_name": "Acme Corp",
+  "organization_description": "Optional company description."
+}
+```
+
+**Response (201):**
+```json
+{
+  "detail": "Organization created.",
+  "organization": { "id": "...", "name": "Acme Corp", "slug": "acme-corp", ... },
+  "user": { "id": "...", "email": "...", "account_type": "business", ... }
+}
+```
+
+- **Error (400):** User already has an org membership.
 
 #### Email/Password Login
 

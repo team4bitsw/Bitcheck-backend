@@ -92,8 +92,21 @@ def squad_webhook_view(request):
             signature=signature,
         )
 
-        # Dispatch for async processing
-        process_webhook_event_task.delay(str(event.id))
+        # Process the event synchronously (inline).
+        # On Cloud Run we only run gunicorn — no Celery worker. So we
+        # process right here to guarantee the payment/top-up is handled.
+        # Squad's timeout is generous enough for our DB operations.
+        try:
+            from .services import process_webhook_event
+            process_webhook_event(str(event.id))
+            logger.info(f'Webhook event {event.id} processed inline.')
+        except Exception as proc_err:
+            logger.error(
+                f'Inline webhook processing failed for {event.id}: {proc_err}',
+                exc_info=True,
+            )
+            # Event is saved in the inbox with status='failed'.
+            # retry_failed_webhooks periodic task will pick it up later.
 
         return JsonResponse({'status': 'received', 'event_id': str(event.id)})
 
