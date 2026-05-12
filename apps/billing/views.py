@@ -3,7 +3,7 @@ Billing views — plan listing, subscription management, and Pro upgrade.
 
 Endpoints:
   GET  /api/billing/plans/                  — list all active plans
-  GET  /api/billing/subscription/           — current user's active subscription
+  GET  /api/billing/subscription/           — subscription + wallet (``subscription`` may be null or ``incomplete``)
   POST /api/billing/subscription/upgrade/   — initiate Pro upgrade (Squad checkout)
   POST /api/billing/subscription/cancel/    — set cancel_at_period_end flag
 """
@@ -36,31 +36,44 @@ def plan_list_view(request):
 @permission_classes([IsAuthenticated])
 def subscription_detail_view(request):
     """
-    Get the current user's active subscription with plan details
-    and wallet balance.
+    Get the current user's subscription with plan details and wallet balance.
+
+    Returns 200 always (authenticated). Includes an ``incomplete`` row while
+    Squad checkout is finishing so the client can poll without hitting 404
+    after the free plan row was canceled.
+
+    If the user has no subscription rows (provisioning edge cases), returns
+    ``subscription: null`` with their B2C wallet.
     """
     from apps.bits.services import get_wallet_for_user
 
-    subscription = Subscription.objects.select_related('plan').filter(
-        user=request.user,
-        status__in=['active', 'past_due', 'paused'],
+    qs = Subscription.objects.select_related('plan').filter(user=request.user)
+
+    subscription = qs.filter(
+        status__in=[
+            Subscription.Status.ACTIVE,
+            Subscription.Status.PAST_DUE,
+            Subscription.Status.PAUSED,
+        ],
     ).first()
 
     if not subscription:
-        return Response(
-            {'detail': 'No active subscription found.'},
-            status=status.HTTP_404_NOT_FOUND,
-        )
+        subscription = qs.filter(
+            status=Subscription.Status.INCOMPLETE,
+        ).order_by('-created_at').first()
 
     wallet = get_wallet_for_user(request.user)
 
-    return Response({
-        'subscription': SubscriptionSerializer(subscription).data,
+    payload = {
+        'subscription': SubscriptionSerializer(subscription).data
+        if subscription
+        else None,
         'wallet': {
             'id': str(wallet.id),
             'balance_bits': wallet.balance_bits,
         },
-    })
+    }
+    return Response(payload)
 
 
 @api_view(['POST'])
