@@ -1,0 +1,667 @@
+{% extends "admin/base_site.html" %}
+{% load static %}
+
+{% block extrastyle %}
+{{ block.super }}
+<style>
+  /* ============================================================
+     Bitcheck AI — Custom Django Admin Theme
+     Supports both Light and Dark modes via Django's theme toggle.
+     ============================================================ */
+
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+  /* === Light Mode (default) === */
+  :root {
+    --bc-bg-primary:    #f4f4f8;
+    --bc-bg-secondary:  #eaeaf0;
+    --bc-bg-card:       #ffffff;
+    --bc-bg-hover:      #ededf5;
+    --bc-border:        #d8d8e4;
+    --bc-text-primary:  #1a1a2e;
+    --bc-text-secondary:#6c6c88;
+    --bc-accent:        #6c5ce7;
+    --bc-accent-hover:  #5a4bd1;
+    --bc-accent-soft:   rgba(108, 92, 231, 0.10);
+    --bc-success:       #00b87a;
+    --bc-warning:       #e6940a;
+    --bc-danger:        #e03e4e;
+    --bc-link:          #4a6cf7;
+    --bc-header-bg:     linear-gradient(135deg, #1a1a2e 0%, #2d2d52 50%, #16213e 100%);
+    --bc-module-header: linear-gradient(135deg, #6c5ce7 0%, #5a4bd1 100%);
+    --bc-input-bg:      #f4f4f8;
+    --bc-shadow:        rgba(0, 0, 0, 0.06);
+  }
+
+  /* === Dark Mode === */
+  [data-theme="dark"] {
+    --bc-bg-primary:    #0a0a0f;
+    --bc-bg-secondary:  #12121a;
+    --bc-bg-card:       #1a1a26;
+    --bc-bg-hover:      #22223a;
+    --bc-border:        #2a2a3d;
+    --bc-text-primary:  #e8e8f0;
+    --bc-text-secondary:#9090a8;
+    --bc-accent:        #6c5ce7;
+    --bc-accent-hover:  #7e70f0;
+    --bc-accent-soft:   rgba(108, 92, 231, 0.15);
+    --bc-success:       #00d68f;
+    --bc-warning:       #ffaa00;
+    --bc-danger:        #ff4757;
+    --bc-link:          #74b9ff;
+    --bc-header-bg:     linear-gradient(135deg, #12121a 0%, #1a1a2e 50%, #16213e 100%);
+    --bc-module-header: linear-gradient(135deg, #6c5ce7 0%, #5a4bd1 100%);
+    --bc-input-bg:      #0a0a0f;
+    --bc-shadow:        rgba(0, 0, 0, 0.3);
+  }
+
+  /* Also support OS preference when no explicit toggle */
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bc-bg-primary:    #0a0a0f;
+      --bc-bg-secondary:  #12121a;
+      --bc-bg-card:       #1a1a26;
+      --bc-bg-hover:      #22223a;
+      --bc-border:        #2a2a3d;
+      --bc-text-primary:  #e8e8f0;
+      --bc-text-secondary:#9090a8;
+      --bc-accent:        #6c5ce7;
+      --bc-accent-hover:  #7e70f0;
+      --bc-accent-soft:   rgba(108, 92, 231, 0.15);
+      --bc-success:       #00d68f;
+      --bc-warning:       #ffaa00;
+      --bc-danger:        #ff4757;
+      --bc-link:          #74b9ff;
+      --bc-header-bg:     linear-gradient(135deg, #12121a 0%, #1a1a2e 50%, #16213e 100%);
+      --bc-module-header: linear-gradient(135deg, #6c5ce7 0%, #5a4bd1 100%);
+      --bc-input-bg:      #0a0a0f;
+      --bc-shadow:        rgba(0, 0, 0, 0.3);
+    }
+  }
+
+  /* === Global === */
+  body {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif !important;
+    background: var(--bc-bg-primary) !important;
+    color: var(--bc-text-primary) !important;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* === Header / Top Bar === */
+  #header {
+    background: var(--bc-header-bg) !important;
+    border-bottom: 1px solid var(--bc-border) !important;
+    padding: 12px 24px !important;
+    box-shadow: 0 4px 20px var(--bc-shadow);
+  }
+
+  #header h1,
+  #header h1 a,
+  #header #site-name a {
+    color: #fff !important;
+    font-weight: 700 !important;
+    font-size: 1.3rem !important;
+    letter-spacing: -0.02em;
+  }
+
+  #branding h1::before {
+    content: '⬡ ';
+    color: var(--bc-accent);
+  }
+
+  #user-tools {
+    color: rgba(255, 255, 255, 0.7) !important;
+    font-size: 0.85rem;
+  }
+
+  #user-tools a {
+    color: rgba(255, 255, 255, 0.9) !important;
+    text-decoration: none;
+    border-bottom: 1px solid transparent;
+    transition: border-color 0.2s;
+  }
+
+  #user-tools a:hover {
+    border-bottom-color: rgba(255, 255, 255, 0.9);
+    color: #fff !important;
+  }
+
+  /* === Breadcrumbs === */
+  div.breadcrumbs {
+    background: var(--bc-bg-secondary) !important;
+    border-bottom: 1px solid var(--bc-border) !important;
+    color: var(--bc-text-secondary) !important;
+    padding: 10px 24px !important;
+    font-size: 0.85rem;
+  }
+
+  div.breadcrumbs a {
+    color: var(--bc-link) !important;
+  }
+
+  /* === Content Area === */
+  #content {
+    background: var(--bc-bg-primary) !important;
+    padding: 20px 24px !important;
+  }
+
+  #content h1,
+  #content-main h1,
+  #content-main h2 {
+    color: var(--bc-text-primary) !important;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+  }
+
+  /* === Container === */
+  #container {
+    background: var(--bc-bg-primary) !important;
+  }
+
+  /* === Module / Section Boxes === */
+  .module {
+    background: var(--bc-bg-card) !important;
+    border: 1px solid var(--bc-border) !important;
+    border-radius: 10px !important;
+    overflow: hidden;
+    margin-bottom: 20px !important;
+    box-shadow: 0 2px 8px var(--bc-shadow);
+  }
+
+  .module h2,
+  .module caption {
+    background: var(--bc-module-header) !important;
+    color: #fff !important;
+    font-weight: 600 !important;
+    padding: 12px 16px !important;
+    font-size: 0.9rem !important;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+    border: none !important;
+  }
+
+  /* === Tables === */
+  table {
+    border-collapse: separate !important;
+    border-spacing: 0 !important;
+  }
+
+  #result_list table thead th {
+    background: var(--bc-bg-secondary) !important;
+    color: var(--bc-text-secondary) !important;
+    border-bottom: 2px solid var(--bc-border) !important;
+    font-weight: 600;
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    padding: 10px 12px !important;
+  }
+
+  #result_list table tbody tr {
+    transition: background 0.15s ease;
+  }
+
+  #result_list table tbody tr:nth-child(odd) {
+    background: var(--bc-bg-card) !important;
+  }
+
+  #result_list table tbody tr:nth-child(even) {
+    background: var(--bc-bg-secondary) !important;
+  }
+
+  #result_list table tbody tr:hover {
+    background: var(--bc-bg-hover) !important;
+  }
+
+  #result_list table td,
+  #result_list table th {
+    border-bottom: 1px solid var(--bc-border) !important;
+    padding: 10px 12px !important;
+    color: var(--bc-text-primary) !important;
+  }
+
+  #result_list table td a {
+    color: var(--bc-link) !important;
+    font-weight: 500;
+    text-decoration: none;
+  }
+
+  #result_list table td a:hover {
+    color: var(--bc-accent-hover) !important;
+    text-decoration: underline;
+  }
+
+  /* === Dashboard / Index Modules === */
+  .dashboard #content-main .module table th,
+  .dashboard #content-main .module table td {
+    background: transparent !important;
+    color: var(--bc-text-primary) !important;
+    border-bottom: 1px solid var(--bc-border) !important;
+    padding: 8px 12px !important;
+  }
+
+  .dashboard #content-main .module table th a,
+  .dashboard #content-main .module table td a {
+    color: var(--bc-link) !important;
+  }
+
+  .dashboard .module table tr:hover td {
+    background: var(--bc-bg-hover) !important;
+  }
+
+  /* Add / Change links on dashboard */
+  .dashboard .module table td a.addlink,
+  .dashboard .module table td a.changelink {
+    color: var(--bc-text-secondary) !important;
+    font-size: 0.8rem;
+  }
+
+  .dashboard .module table td a.addlink:hover,
+  .dashboard .module table td a.changelink:hover {
+    color: var(--bc-accent) !important;
+  }
+
+  /* === Sidebar Filters === */
+  #changelist-filter {
+    background: var(--bc-bg-card) !important;
+    border: 1px solid var(--bc-border) !important;
+    border-radius: 10px;
+  }
+
+  #changelist-filter h2 {
+    background: var(--bc-bg-secondary) !important;
+    color: var(--bc-text-secondary) !important;
+    text-transform: uppercase;
+    font-size: 0.75rem;
+    letter-spacing: 0.05em;
+    padding: 10px 14px !important;
+    border-bottom: 1px solid var(--bc-border);
+  }
+
+  #changelist-filter h3 {
+    color: var(--bc-text-primary) !important;
+    font-size: 0.85rem;
+    padding: 8px 14px 4px !important;
+  }
+
+  #changelist-filter li {
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+
+  #changelist-filter a {
+    color: var(--bc-text-secondary) !important;
+    padding: 4px 14px !important;
+    display: block;
+    transition: all 0.15s;
+    font-size: 0.85rem;
+  }
+
+  #changelist-filter li.selected a {
+    color: var(--bc-accent) !important;
+    font-weight: 600;
+    background: var(--bc-accent-soft) !important;
+    border-left: 3px solid var(--bc-accent);
+  }
+
+  #changelist-filter a:hover {
+    background: var(--bc-bg-hover) !important;
+    color: var(--bc-text-primary) !important;
+  }
+
+  /* === Forms === */
+  .form-row {
+    border-bottom: 1px solid var(--bc-border) !important;
+    padding: 12px 14px !important;
+    color: var(--bc-text-primary) !important;
+  }
+
+  .form-row label {
+    color: var(--bc-text-secondary) !important;
+    font-weight: 500;
+    font-size: 0.85rem;
+  }
+
+  input[type="text"],
+  input[type="password"],
+  input[type="email"],
+  input[type="url"],
+  input[type="number"],
+  textarea,
+  select {
+    background: var(--bc-input-bg) !important;
+    border: 1px solid var(--bc-border) !important;
+    color: var(--bc-text-primary) !important;
+    border-radius: 6px !important;
+    padding: 8px 12px !important;
+    font-family: 'Inter', sans-serif !important;
+    font-size: 0.9rem !important;
+    transition: border-color 0.2s, box-shadow 0.2s;
+  }
+
+  input:focus,
+  textarea:focus,
+  select:focus {
+    border-color: var(--bc-accent) !important;
+    box-shadow: 0 0 0 3px var(--bc-accent-soft) !important;
+    outline: none !important;
+  }
+
+  /* === Buttons === */
+  .submit-row {
+    background: var(--bc-bg-secondary) !important;
+    border-top: 1px solid var(--bc-border) !important;
+    padding: 14px !important;
+    border-radius: 0 0 10px 10px;
+  }
+
+  input[type="submit"],
+  .button,
+  a.button {
+    background: var(--bc-module-header) !important;
+    color: #fff !important;
+    border: none !important;
+    border-radius: 6px !important;
+    padding: 8px 20px !important;
+    font-weight: 600 !important;
+    font-size: 0.85rem !important;
+    cursor: pointer;
+    transition: transform 0.1s, box-shadow 0.2s;
+    text-transform: none !important;
+  }
+
+  input[type="submit"]:hover,
+  .button:hover,
+  a.button:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(108, 92, 231, 0.4) !important;
+  }
+
+  input[type="submit"]:active,
+  .button:active {
+    transform: translateY(0);
+  }
+
+  .submit-row input.default {
+    background: linear-gradient(135deg, var(--bc-success) 0%, #00a06a 100%) !important;
+  }
+
+  .submit-row .deletelink {
+    color: var(--bc-danger) !important;
+  }
+
+  .button.cancel-link {
+    background: var(--bc-bg-hover) !important;
+    color: var(--bc-text-secondary) !important;
+  }
+
+  /* === Delete / Danger === */
+  .deletelink,
+  .delete a {
+    color: var(--bc-danger) !important;
+  }
+
+  /* === Links === */
+  a {
+    color: var(--bc-link) !important;
+  }
+
+  a:hover {
+    color: var(--bc-accent-hover) !important;
+  }
+
+  /* === Pagination === */
+  .paginator {
+    background: var(--bc-bg-secondary) !important;
+    border: 1px solid var(--bc-border) !important;
+    border-radius: 8px;
+    padding: 8px 14px !important;
+    color: var(--bc-text-secondary) !important;
+    font-size: 0.85rem;
+  }
+
+  /* === Messages / Alerts === */
+  .messagelist li {
+    border-radius: 8px !important;
+    padding: 10px 16px !important;
+    margin-bottom: 8px !important;
+    font-size: 0.9rem;
+    border: none !important;
+  }
+
+  .messagelist li.success {
+    background: rgba(0, 184, 122, 0.10) !important;
+    color: var(--bc-success) !important;
+    border-left: 4px solid var(--bc-success) !important;
+  }
+
+  .messagelist li.warning {
+    background: rgba(230, 148, 10, 0.10) !important;
+    color: var(--bc-warning) !important;
+    border-left: 4px solid var(--bc-warning) !important;
+  }
+
+  .messagelist li.error {
+    background: rgba(224, 62, 78, 0.10) !important;
+    color: var(--bc-danger) !important;
+    border-left: 4px solid var(--bc-danger) !important;
+  }
+
+  /* === Related widget (+ icon) === */
+  .related-widget-wrapper {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  /* === Object tools (top-right buttons) === */
+  .object-tools a {
+    background: var(--bc-bg-hover) !important;
+    border: 1px solid var(--bc-border) !important;
+    border-radius: 6px !important;
+    color: var(--bc-text-primary) !important;
+    padding: 6px 14px !important;
+    font-size: 0.8rem;
+    transition: all 0.15s;
+  }
+
+  .object-tools a:hover {
+    background: var(--bc-accent-soft) !important;
+    border-color: var(--bc-accent) !important;
+    color: var(--bc-accent) !important;
+  }
+
+  /* === Search bar === */
+  #toolbar {
+    background: var(--bc-bg-secondary) !important;
+    border: 1px solid var(--bc-border) !important;
+    border-radius: 10px !important;
+    padding: 10px 14px !important;
+    margin-bottom: 16px;
+  }
+
+  #searchbar {
+    background: var(--bc-input-bg) !important;
+    border: 1px solid var(--bc-border) !important;
+    color: var(--bc-text-primary) !important;
+    border-radius: 6px !important;
+    padding: 8px 14px !important;
+    width: 300px;
+  }
+
+  /* === Calendar / Date widgets === */
+  .calendarbox,
+  .clockbox,
+  .calendar-shortcuts {
+    background: var(--bc-bg-card) !important;
+    border: 1px solid var(--bc-border) !important;
+    color: var(--bc-text-primary) !important;
+    border-radius: 8px;
+  }
+
+  .calendar td a {
+    color: var(--bc-text-primary) !important;
+  }
+
+  .calendar td.today a {
+    background: var(--bc-accent-soft) !important;
+    color: var(--bc-accent) !important;
+    font-weight: 600;
+  }
+
+  /* === Help text === */
+  .help {
+    color: var(--bc-text-secondary) !important;
+    font-size: 0.8rem;
+  }
+
+  /* === Inline groups === */
+  .inline-group h2 {
+    background: var(--bc-bg-secondary) !important;
+    color: var(--bc-text-secondary) !important;
+    text-transform: uppercase;
+    font-size: 0.75rem !important;
+    letter-spacing: 0.05em;
+  }
+
+  .inline-related {
+    border: 1px solid var(--bc-border) !important;
+    border-radius: 8px !important;
+    margin-bottom: 8px;
+    background: var(--bc-bg-secondary) !important;
+  }
+
+  /* === Footer === */
+  #footer {
+    background: var(--bc-bg-secondary) !important;
+    border-top: 1px solid var(--bc-border) !important;
+    color: var(--bc-text-secondary) !important;
+    padding: 12px 24px !important;
+    font-size: 0.8rem;
+  }
+
+  /* === Responsive tweaks === */
+  @media (max-width: 768px) {
+    #header { padding: 10px 16px !important; }
+    #content { padding: 12px 16px !important; }
+  }
+
+  /* === Checkbox / Boolean === */
+  input[type="checkbox"] {
+    accent-color: var(--bc-accent);
+    width: 16px;
+    height: 16px;
+  }
+
+  /* === Recent actions sidebar === */
+  #recent-actions-module h2 {
+    background: var(--bc-bg-secondary) !important;
+    color: var(--bc-text-secondary) !important;
+  }
+
+  #recent-actions-module .module li {
+    border-bottom: 1px solid var(--bc-border) !important;
+    padding: 8px 12px !important;
+  }
+
+  #recent-actions-module .module li a {
+    color: var(--bc-link) !important;
+  }
+
+  /* === Scrollbar (dark mode only) === */
+  [data-theme="dark"] ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  [data-theme="dark"] ::-webkit-scrollbar-track {
+    background: var(--bc-bg-primary);
+  }
+
+  [data-theme="dark"] ::-webkit-scrollbar-thumb {
+    background: var(--bc-border);
+    border-radius: 4px;
+  }
+
+  [data-theme="dark"] ::-webkit-scrollbar-thumb:hover {
+    background: var(--bc-text-secondary);
+  }
+
+  /* === Login page === */
+  body.login {
+    background: var(--bc-bg-primary) !important;
+  }
+
+  body.login #container {
+    background: transparent !important;
+  }
+
+  body.login #header {
+    background: transparent !important;
+    border: none !important;
+    box-shadow: none;
+    text-align: center;
+    padding: 40px 24px 20px !important;
+  }
+
+  body.login #header h1 a {
+    font-size: 2rem !important;
+  }
+
+  body.login #content-main {
+    max-width: 420px;
+    margin: 0 auto;
+  }
+
+  body.login .module {
+    background: var(--bc-bg-card) !important;
+    border: 1px solid var(--bc-border) !important;
+    border-radius: 14px !important;
+    padding: 30px !important;
+    box-shadow: 0 8px 32px var(--bc-shadow);
+  }
+
+  body.login input[type="submit"] {
+    width: 100%;
+    padding: 12px !important;
+    font-size: 1rem !important;
+    margin-top: 8px;
+  }
+
+  /* === Dark mode toggle button (sun/moon icon) === */
+  #toggle-nav-sidebar,
+  button[data-theme-toggle] {
+    color: var(--bc-text-secondary) !important;
+  }
+
+  /* === Nav sidebar === */
+  nav#nav-sidebar {
+    background: var(--bc-bg-card) !important;
+    border-right: 1px solid var(--bc-border) !important;
+  }
+
+  nav#nav-sidebar .module h2 {
+    background: var(--bc-bg-secondary) !important;
+    color: var(--bc-text-secondary) !important;
+    font-size: 0.75rem !important;
+  }
+
+  nav#nav-sidebar .module th {
+    background: transparent !important;
+    padding: 4px 14px !important;
+  }
+
+  nav#nav-sidebar .module th a {
+    color: var(--bc-text-primary) !important;
+    font-size: 0.85rem;
+  }
+
+  nav#nav-sidebar .module th a:hover {
+    color: var(--bc-accent) !important;
+  }
+
+  nav#nav-sidebar .current-model {
+    background: var(--bc-accent-soft) !important;
+  }
+</style>
+{% endblock %}

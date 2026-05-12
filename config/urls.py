@@ -15,6 +15,11 @@ from drf_spectacular.views import (
     SpectacularRedocView,
 )
 
+# Admin site branding
+admin.site.site_header = 'Bitcheck AI Administration'
+admin.site.site_title = 'Bitcheck AI Admin'
+admin.site.index_title = 'Dashboard'
+
 
 @api_view(['GET'])
 @permission_classes([AllowAny])
