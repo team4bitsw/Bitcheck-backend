@@ -41,12 +41,17 @@ def verify_squad_signature(payload_body, signature_header):
     Returns True if valid, False otherwise.
     """
     if not signature_header:
+        print('[SIGNATURE] No signature header provided')
         return False
 
     secret = settings.SQUAD_WEBHOOK_SECRET
     if not secret:
+        print('[SIGNATURE] ❌ SQUAD_WEBHOOK_SECRET is not configured!')
         logger.warning('SQUAD_WEBHOOK_SECRET is not configured.')
         return False
+
+    print(f'[SIGNATURE] Secret key (first 15 chars): {secret[:15]}...')
+    print(f'[SIGNATURE] Received sig (first 20 chars): {signature_header[:20]}...')
 
     expected = hmac.new(
         secret.encode('utf-8'),
@@ -54,7 +59,10 @@ def verify_squad_signature(payload_body, signature_header):
         hashlib.sha512,
     ).hexdigest()
 
-    return hmac.compare_digest(expected, signature_header)
+    print(f'[SIGNATURE] Computed sig (first 20 chars): {expected[:20]}...')
+    match = hmac.compare_digest(expected, signature_header)
+    print(f'[SIGNATURE] Match: {match}')
+    return match
 
 
 # ============================================================
@@ -95,27 +103,35 @@ def process_webhook_event(event_id):
     Dispatches to the appropriate handler based on source + event_type.
     Updates the event status to 'processed' or 'failed'.
     """
+    print(f'[PROCESS] Starting processing for event {event_id}')
     try:
         event = WebhookEvent.objects.get(pk=event_id)
     except WebhookEvent.DoesNotExist:
+        print(f'[PROCESS] ❌ Event {event_id} not found in DB!')
         logger.error(f'Webhook event {event_id} not found.')
         return
 
+    print(f'[PROCESS] Event found: source={event.source}, type={event.event_type}, status={event.status}')
+
     # Guard: skip if already processed
     if event.status != WebhookEvent.Status.RECEIVED:
+        print(f'[PROCESS] ⚠️ Event already in state "{event.status}", skipping.')
         logger.info(f'Event {event_id} already in state {event.status}, skipping.')
         return
 
     try:
         if event.source == 'squad':
+            print(f'[PROCESS] Routing to Squad handler...')
             _process_squad_event(event)
         else:
+            print(f'[PROCESS] ⚠️ Unknown source: {event.source}')
             event.status = WebhookEvent.Status.IGNORED
             event.processing_error = f'Unknown source: {event.source}'
             event.processed_at = timezone.now()
             event.save(update_fields=['status', 'processing_error', 'processed_at'])
 
     except Exception as e:
+        print(f'[PROCESS] ❌ FAILED: {e}')
         event.status = WebhookEvent.Status.FAILED
         event.processing_error = str(e)[:2000]
         event.processed_at = timezone.now()
@@ -139,12 +155,16 @@ def _process_squad_event(event):
     event_type = event.event_type
     payload = event.payload
 
+    print(f'[SQUAD] Routing event_type="{event_type}"')
+
     if event_type == 'transfer.successful':
+        print(f'[SQUAD] → _handle_virtual_account_credit()')
         _handle_virtual_account_credit(event, payload)
     elif event_type == 'charge_successful':
+        print(f'[SQUAD] → _handle_subscription_charge()')
         _handle_subscription_charge(event, payload)
     else:
-        # Unknown event type — mark as ignored
+        print(f'[SQUAD] ⚠️ Unknown event type: {event_type}')
         event.status = WebhookEvent.Status.IGNORED
         event.processing_error = f'Unhandled Squad event type: {event_type}'
         event.processed_at = timezone.now()
@@ -299,6 +319,8 @@ def _handle_subscription_charge(event, payload):
     from apps.bits.services import credit_wallet, get_wallet_for_user
     from datetime import timedelta
 
+    print(f'[CHARGE] Processing charge_successful webhook')
+
     # Squad nests the data under 'Body' for charge_successful events
     body = payload.get('Body', payload.get('data', payload))
     transaction_ref = body.get('transaction_ref', '')
@@ -308,7 +330,13 @@ def _handle_subscription_charge(event, payload):
     payment_info = body.get('payment_information', {})
     token_id = payment_info.get('token_id', '')
 
+    print(f'[CHARGE] transaction_ref={transaction_ref}')
+    print(f'[CHARGE] email={email}')
+    print(f'[CHARGE] token_id={token_id or "(none)"}')
+    print(f'[CHARGE] Body keys: {list(body.keys()) if isinstance(body, dict) else "NOT A DICT"}')
+
     if not transaction_ref:
+        print(f'[CHARGE] ❌ No transaction_ref found!')
         event.status = WebhookEvent.Status.IGNORED
         event.processing_error = 'No transaction_ref in charge_successful payload.'
         event.processed_at = timezone.now()
@@ -316,9 +344,15 @@ def _handle_subscription_charge(event, payload):
         return
 
     # Find the subscription by the transaction_ref we set as squad_subscription_id
+    print(f'[CHARGE] Looking up subscription with squad_subscription_id={transaction_ref}')
     subscription = Subscription.objects.select_related('user', 'plan').filter(
         squad_subscription_id=transaction_ref,
     ).first()
+
+    if subscription:
+        print(f'[CHARGE] ✅ Found by transaction_ref: sub={subscription.id}, status={subscription.status}, user={subscription.user.email}')
+    else:
+        print(f'[CHARGE] ⚠️ No subscription found by transaction_ref, trying email={email}')
 
     # Fallback: try to find by email if transaction_ref lookup fails
     if not subscription and email:
@@ -326,8 +360,14 @@ def _handle_subscription_charge(event, payload):
             user__email__iexact=email,
             status__in=['incomplete', 'active', 'past_due'],
         ).first()
+        if subscription:
+            print(f'[CHARGE] ✅ Found by email: sub={subscription.id}, status={subscription.status}')
 
     if not subscription:
+        print(f'[CHARGE] ❌ NO SUBSCRIPTION FOUND for ref={transaction_ref}, email={email}')
+        # Log all subscriptions for debugging
+        all_subs = Subscription.objects.all().values_list('id', 'squad_subscription_id', 'status', 'user__email')[:10]
+        print(f'[CHARGE] All subscriptions (first 10): {list(all_subs)}')
         event.status = WebhookEvent.Status.IGNORED
         event.processing_error = (
             f'No subscription found for transaction_ref={transaction_ref} '
