@@ -112,6 +112,11 @@ def delete_webhook(token: str) -> dict[str, Any]:
     return tg_post(token, 'deleteWebhook', json={'drop_pending_updates': False})
 
 
+def get_webhook_info(token: str) -> dict[str, Any]:
+    data = tg_get(token, 'getWebhookInfo')
+    return data['result']
+
+
 def answer_callback_query(
     token: str,
     *,

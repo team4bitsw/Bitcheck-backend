@@ -16,9 +16,10 @@ import dj_database_url
 # ============================================================
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-# Always load project-root .env (cwd-independent — running from another folder
-# silently skipped .env before, so flags like SQUAD_VA_DEV_MOCK never applied).
+# Always load project-root .env (cwd-independent). Cloud Run: ship only these vars (or this file).
 load_dotenv(BASE_DIR / '.env')
+# Local development: optional overrides — must not be deployed to Cloud Run.
+load_dotenv(BASE_DIR / '.env.local', override=True)
 
 
 def _env_truthy(name: str, *, default: bool = False) -> bool:
@@ -355,9 +356,11 @@ else:
 
 
 # ============================================================
-# Google OAuth
+# Google OAuth (Sign-In with Google — ID token audience)
 # ============================================================
-GOOGLE_CLIENT_ID = config('GOOGLE_CLIENT_ID', default='')
+GOOGLE_CLIENT_ID = (
+    config('GOOGLE_CLIENT_ID', default='').strip() or GOOGLE_OAUTH_CLIENT_ID
+)
 
 
 # ============================================================
