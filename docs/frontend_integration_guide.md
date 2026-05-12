@@ -432,6 +432,133 @@ const pollVerification = async (id: string): Promise<Verification> => {
 
 > The list view uses a compact serializer — no `result_summary`, `error_message`, `text_input`, or `uploaded_file`. Fetch the detail endpoint for full data.
 
+### Direct Image Verification (Recommended)
+
+`POST /api/verifications/verify/image/` — **Requires auth. Content-Type: `multipart/form-data`.**
+
+Uploads an image directly and runs it through the BitCheck ML pipeline. Returns the full AI analysis inline — no polling needed. Costs **2 bits** on success.
+
+> [!TIP]
+> This is the simplest way to verify images. Unlike `POST /api/verifications/` which requires a pre-uploaded S3 file reference, this endpoint accepts the raw image file directly.
+
+**Request (multipart/form-data):**
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `file` | image file | **Yes** | `.jpg`, `.jpeg`, `.png`, `.webp` — max 20 MB |
+| `label` | string | No | User/data identifier — e.g., `"invoice_q4"`, `"user_john_avatar"`, a slug, or any tracking ref |
+| `run_explainability` | string | No | `"true"` / `"false"` — Grad-CAM heatmap & hotspot boxes (default: `true`) |
+| `run_ocr` | string | No | `"true"` / `"false"` — check visible watermark/text (default: `true`) |
+| `run_c2pa` | string | No | `"true"` / `"false"` — check C2PA content credentials (default: `true`) |
+| `threshold` | string | No | Custom AI detection threshold, e.g., `"0.62"` |
+
+**cURL example:**
+```bash
+curl -X POST "https://bitscheck-849221325853.europe-west1.run.app/api/verifications/verify/image/" \
+  -H "Cookie: sessionid=YOUR_SESSION_COOKIE" \
+  -F "file=@suspicious_image.jpg" \
+  -F "label=audit_report_may2026" \
+  -F "run_explainability=true" \
+  -F "run_ocr=true" \
+  -F "run_c2pa=true"
+```
+
+**Response (200):**
+```json
+{
+  "detail": "Image verification completed.",
+  "verification": {
+    "id": "uuid",
+    "modality": "image",
+    "status": "completed",
+    "trust_score": 31,
+    "verdict": "suspicious",
+    "bits_charged": 2,
+    "result_summary": {
+      "label": "audit_report_may2026",
+      "original_filename": "suspicious_image.jpg",
+      "sha256": "b1ddf2f9f25c0f9adf...",
+      "file_size_bytes": 248391,
+      "ml_verification_id": "8d53cf77-2b2d-4d55-b6a9-...",
+      "model_result": {
+        "predicted_label": "likely_ai_generated",
+        "real_probability": 0.1372,
+        "ai_generated_probability": 0.8628,
+        "threshold": 0.62
+      },
+      "metadata": {
+        "camera_metadata_found": false,
+        "software": "Adobe Photoshop",
+        "editing_software_detected": true
+      },
+      "provenance": {
+        "c2pa_found": false,
+        "status": "missing"
+      },
+      "forensics": {
+        "manipulation_risk_score": 0.41,
+        "sharpness_score": 118.6,
+        "compression_risk": 0.33,
+        "artifact_flags": ["Moderate compression artifacts detected"]
+      },
+      "explainability": {
+        "method": "Grad-CAM",
+        "heatmap_url": "/outputs/8d53cf77_heatmap.jpg",
+        "boxed_image_url": "/outputs/8d53cf77_boxed.jpg",
+        "hotspots": [
+          { "x": 114, "y": 88, "width": 231, "height": 166, "score": 0.78 }
+        ]
+      },
+      "trust": {
+        "trust_score": 31,
+        "risk_level": "High Risk",
+        "decision": "block_or_manual_review"
+      },
+      "risk_flags": [
+        "AI-generated probability is high.",
+        "No trusted C2PA provenance metadata found."
+      ]
+    },
+    "error_message": null,
+    "created_at": "2026-05-12T17:00:00Z",
+    "completed_at": "2026-05-12T17:00:03Z"
+  }
+}
+```
+
+**Error responses:**
+- **400** — Missing file, unsupported type, file too large, or ML service error
+- **402** — Insufficient bits: `{ "detail": "Insufficient bits for image verification.", "required": 2, "available": 0 }`
+
+**Frontend implementation (JavaScript FormData):**
+```javascript
+const verifyImage = async (file, label = '') => {
+  const form = new FormData();
+  form.append('file', file);               // File object from <input type="file">
+  form.append('label', label);             // Your tracking identifier
+  form.append('run_explainability', 'true');
+  form.append('run_ocr', 'true');
+  form.append('run_c2pa', 'true');
+
+  const response = await fetch('/api/verifications/verify/image/', {
+    method: 'POST',
+    credentials: 'include',  // sends session cookie
+    body: form,              // NO Content-Type header — browser sets it with boundary
+  });
+
+  if (response.status === 402) {
+    const err = await response.json();
+    alert(`Need ${err.required} bits, you have ${err.available}.`);
+    return null;
+  }
+
+  return response.json();
+};
+```
+
+> [!IMPORTANT]
+> Do NOT set `Content-Type: application/json` for this endpoint. Use `FormData` and let the browser set the correct `multipart/form-data` boundary automatically.
+
 ---
 
 ## 4. Dashboards & Token Economy
@@ -512,8 +639,14 @@ const upgradeToPro = async () => {
 
 > [!IMPORTANT]
 > After the user pays on Squad's checkout page, they are redirected to the `callback_url`.
-> The subscription is NOT active yet at this point — Squad sends a `charge_successful` webhook to the backend, which activates the subscription and credits 50 bits.
+> The subscription is NOT active yet at this point — Squad sends a `charge_successful` webhook to the backend, which:
+> 1. **Resets the wallet to 0** (removes the 3 free bits)
+> 2. **Credits 50 Pro bits**
+> 3. Activates the subscription
+>
 > **Poll `GET /api/billing/subscription/` every 2 seconds on the success page** until `plan.code` changes from `"free"` to `"pro"`.
+>
+> On monthly **renewal**, the same reset-and-grant happens: balance goes to 0, then 50 fresh bits are credited. Unused bits do NOT roll over.
 
 **400** if already on Pro.
 **502** if Squad API is unreachable.

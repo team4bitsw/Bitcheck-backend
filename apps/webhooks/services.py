@@ -404,38 +404,79 @@ def _handle_subscription_charge(event, payload):
 
             subscription.save()
 
-            # Credit Pro grant
+            # Reset wallet (removes free 3 bits) and grant Pro bits (50)
             wallet = get_wallet_for_user(subscription.user)
-            credit_wallet(
+            from apps.bits.services import reset_and_grant
+            old_balance = wallet.balance_bits
+            reset_and_grant(
                 wallet_id=wallet.id,
-                amount=pro_plan.monthly_grant_bits,
-                entry_type='subscription_grant',
-                reference_type='subscription',
-                reference_id=str(subscription.id),
-                note=f'Pro plan activated: {pro_plan.monthly_grant_bits} bits',
+                grant_amount=pro_plan.monthly_grant_bits,
+                subscription_id=str(subscription.id),
             )
 
+            print(f'[CHARGE] ✅ Pro activated for {subscription.user.email}: '
+                  f'reset {old_balance} bits → granted {pro_plan.monthly_grant_bits} bits')
             logger.info(
                 f'Pro subscription activated for {subscription.user.email}, '
+                f'reset {old_balance}→0, granted {pro_plan.monthly_grant_bits} bits, '
                 f'token_id={token_id or "none"}'
             )
 
         elif subscription.status == Subscription.Status.PAST_DUE:
             # Renewal payment succeeded — reactivate
+            pro_plan = subscription.plan
+            now = timezone.now()
+
             subscription.status = Subscription.Status.ACTIVE
+            subscription.current_period_start = now
+            subscription.current_period_end = now + timedelta(days=30)
             if token_id:
                 subscription.squad_card_token_id = token_id
-            subscription.save(update_fields=[
-                'status', 'squad_card_token_id', 'updated_at',
-            ])
-            logger.info(f'Subscription reactivated for {subscription.user.email}')
+            subscription.save()
+
+            # Reset and grant fresh bits for the new period
+            wallet = get_wallet_for_user(subscription.user)
+            from apps.bits.services import reset_and_grant
+            old_balance = wallet.balance_bits
+            reset_and_grant(
+                wallet_id=wallet.id,
+                grant_amount=pro_plan.monthly_grant_bits,
+                subscription_id=str(subscription.id),
+            )
+
+            print(f'[CHARGE] ✅ Subscription reactivated for {subscription.user.email}: '
+                  f'reset {old_balance} bits → granted {pro_plan.monthly_grant_bits} bits')
+            logger.info(
+                f'Subscription reactivated for {subscription.user.email}, '
+                f'reset {old_balance}→0, granted {pro_plan.monthly_grant_bits} bits'
+            )
 
         elif subscription.status == Subscription.Status.ACTIVE:
-            # Already active — this is a renewal. Update token if changed.
+            # Already active — this is a monthly renewal.
+            # Reset balance and grant fresh bits for the new period.
+            now = timezone.now()
+
+            subscription.current_period_start = now
+            subscription.current_period_end = now + timedelta(days=30)
             if token_id and token_id != subscription.squad_card_token_id:
                 subscription.squad_card_token_id = token_id
-                subscription.save(update_fields=['squad_card_token_id', 'updated_at'])
-            logger.info(f'Renewal charge recorded for {subscription.user.email}')
+            subscription.save()
+
+            wallet = get_wallet_for_user(subscription.user)
+            from apps.bits.services import reset_and_grant
+            old_balance = wallet.balance_bits
+            reset_and_grant(
+                wallet_id=wallet.id,
+                grant_amount=subscription.plan.monthly_grant_bits,
+                subscription_id=str(subscription.id),
+            )
+
+            print(f'[CHARGE] ✅ Renewal for {subscription.user.email}: '
+                  f'reset {old_balance} bits → granted {subscription.plan.monthly_grant_bits} bits')
+            logger.info(
+                f'Renewal for {subscription.user.email}: '
+                f'reset {old_balance}→0, granted {subscription.plan.monthly_grant_bits} bits'
+            )
 
         # Mark event as processed
         event.status = WebhookEvent.Status.PROCESSED

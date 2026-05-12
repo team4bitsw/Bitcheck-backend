@@ -116,3 +116,81 @@ def verification_detail_view(request, verification_id):
     return Response({
         'verification': VerificationSerializer(verification).data,
     })
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def verify_image_view(request):
+    """
+    Direct image verification — upload an image and get AI analysis results.
+
+    Accepts multipart/form-data. Forwards the image to the ML service,
+    stores the results, and debits bits on success.
+
+    Form fields:
+        file*:               Image file (.jpg, .jpeg, .png, .webp)
+        label:               User-provided identifier (e.g., "invoice_q4_2026")
+        run_explainability:  "true"/"false" — Grad-CAM heatmap (default: true)
+        run_ocr:             "true"/"false" — watermark/text check (default: true)
+        run_c2pa:            "true"/"false" — C2PA provenance (default: true)
+        threshold:           Custom AI detection threshold (float)
+    """
+    from .image_service import verify_image_direct
+
+    image_file = request.FILES.get('file')
+    if not image_file:
+        return Response(
+            {'detail': 'No image file provided. Send as multipart/form-data with field name "file".'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    # Parse optional fields
+    label = request.data.get('label', '').strip()
+    run_explainability = request.data.get('run_explainability', 'true').lower() == 'true'
+    run_ocr = request.data.get('run_ocr', 'true').lower() == 'true'
+    run_c2pa = request.data.get('run_c2pa', 'true').lower() == 'true'
+
+    threshold = None
+    threshold_str = request.data.get('threshold', '').strip()
+    if threshold_str:
+        try:
+            threshold = float(threshold_str)
+        except ValueError:
+            return Response(
+                {'detail': 'threshold must be a valid float.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+    try:
+        verification, ml_result = verify_image_direct(
+            user=request.user,
+            image_file=image_file,
+            label=label,
+            run_explainability=run_explainability,
+            run_ocr=run_ocr,
+            run_c2pa=run_c2pa,
+            threshold=threshold,
+        )
+    except InsufficientBitsError as e:
+        return Response(
+            {
+                'detail': 'Insufficient bits for image verification.',
+                'required': e.required,
+                'available': e.available,
+            },
+            status=status.HTTP_402_PAYMENT_REQUIRED,
+        )
+    except VerificationError as e:
+        return Response(
+            {'detail': str(e)},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    return Response(
+        {
+            'detail': 'Image verification completed.',
+            'verification': VerificationSerializer(verification).data,
+        },
+        status=status.HTTP_200_OK,
+    )
+

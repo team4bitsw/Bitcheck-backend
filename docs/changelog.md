@@ -2,6 +2,44 @@
 
 Living doc: append a dated section when adding or changing API or account/org behavior.
 
+## 2026-05-12 — Image verification, webhook fixes, sandbox tooling, bit economy changes
+
+### Added
+
+- **Direct Image Verification**
+  - `POST /api/verifications/verify/image/` — accepts `multipart/form-data` image upload
+  - New `image_service.py` — validates file, computes SHA256, forwards to ML service's `/verify/image`, maps full response (model_result, forensics, provenance, explainability, trust), debits 2 bits
+  - `label` field for user/data identifiers — track which user, file, or entity each verification belongs to
+  - Options: `run_explainability`, `run_ocr`, `run_c2pa`, `threshold`
+  - Synchronous (inline) — returns full result immediately, no polling needed
+
+- **Sandbox VA Payment Simulation**
+  - `POST /api/bits/virtual-account/simulate-payment/` — proxies to Squad's sandbox simulate endpoint
+  - Auto-fills VA account number from org record, only requires `amount`
+  - Only available when `SQUAD_BASE_URL` contains "sandbox"
+
+- **Verbose Webhook Logging**
+  - `print()` statements throughout `views.py` and `services.py` with `[WEBHOOK]`, `[SIGNATURE]`, `[CHARGE]`, `[VA]`, `[SIMULATE]` prefixes
+  - Logs full payload, signature verification steps, subscription lookup, and processing result
+
+### Fixed
+
+- **Webhook HMAC signature comparison** — Squad sends uppercase hex, Python computes lowercase. Added `.lower()` before `hmac.compare_digest()`. This was the root cause of all webhook 401 failures.
+
+### Changed
+
+- **B2C bit economy — reset-and-grant on upgrade + renewal:**
+  - **Upgrade (free → pro):** Wallet is reset to 0 (removes the 3 free bits), then 50 Pro bits are granted. Users no longer keep free bits after upgrading.
+  - **Monthly renewal:** Wallet is reset to 0 (unused bits forfeited), then 50 fresh Pro bits are granted. Use-it-or-lose-it.
+  - **Reactivation (past_due → active):** Same reset-and-grant behavior.
+  - Free plan 3 bits are now a **one-time allotment** at signup. No monthly renewal for free users.
+  - All three cases use `reset_and_grant()` which writes two ledger entries: `period_reset` + `subscription_grant`.
+
+- **Admin theme** — now supports both light and dark modes via CSS custom properties + Django's `data-theme` attribute.
+- **Webhook processing** — confirmed inline (synchronous) mode as the production pattern.
+
+---
+
 ## 2026-05-11 — B2C Pro upgrade, B2B top-ups, connectors, CSRF fix, logging
 
 ### Added
@@ -28,64 +66,14 @@ Living doc: append a dated section when adding or changing API or account/org be
   - `POST /api/auth/register/` with `account_type: "business"` now also accepts `organization_name` (required) and `organization_description` (optional)
   - Creates User + Organization + admin Membership in one transaction
 
-- **`POST /api/auth/setup-org/`** (session auth required)
-  - For existing individual users who want to create an org after signup
-  - Body: `{ "organization_name": string, "organization_description"?: string }`
-  - Creates Organization, admin Membership, sets `User.account_type` to `business`
-
-- **Connectors app** (`apps.connectors`)
-  - Plugin-based architecture for third-party integrations (Gmail, Slack, Telegram, etc.)
+- **Connectors base architecture**
+  - Plugin-based adapter system for Gmail, Slack, Telegram integrations
   - Models: `ConnectorType`, `ConnectorInstall`, `ConnectorEvent`, `ConnectorMessage`, `ConnectorTypeInterest`
-  - Gmail OAuth adapter: `apps/connectors/adapters/gmail/`
-  - Endpoints under `POST /api/connectors/webhook/<slug>/`, `GET /api/connectors/types/`, install CRUD at `/api/connectors/installs/`
-  - OAuth callback: `GET /api/connectors/oauth/<slug>/callback/`
-  - Rate limiting per install and per type
-  - Encrypted credential storage via `EncryptedJSONField`
 
-- **Structured app logging** (`apps.core`)
-  - JSON-line logger singleton: `apps/core/logger.py`
-  - `RequestLoggingMiddleware` — logs method, path, status, duration, request_id
-  - Env vars: `APP_LOG_LEVEL`, `APP_LOG_HTTP_BODIES`, `APP_LOG_RESPONSE_BODY`, `APP_LOG_MAX_BODY`
+### Fixed
 
-- **CSRF exemption**
-  - `CsrfExemptSessionAuthentication` in `apps/accounts/authentication.py`
-  - Replaced DRF's default `SessionAuthentication` which enforced CSRF on every request (broke Postman/mobile)
-  - Protection via `SameSite=Lax` cookies + CORS whitelist instead
-
-- **Swagger / ReDoc**
-  - `/api/docs/` (Swagger UI), `/api/redoc/` (ReDoc), `/api/schema/` (OpenAPI JSON)
+- **CSRF on webhooks** — ensured `CsrfExemptSessionAuthentication` on Squad webhook endpoint to prevent 403s during payment callbacks
 
 ### Changed
 
-- **`account_type` renamed:** `"organization"` → `"business"` (Django model enum). Frontend must send `"business"` for B2B signups.
-- **Session/CSRF cookies** now configurable via env vars: `SESSION_COOKIE_SAMESITE`, `SESSION_COOKIE_SECURE`, `CSRF_COOKIE_SAMESITE`, `CSRF_COOKIE_SECURE`
-- **`_env_truthy()` helper** added to settings for parsing boolean env vars consistently
-- **`.env` loading** now uses explicit path (`BASE_DIR / '.env'`) instead of relying on cwd
-
-### New environment variables
-
-| Variable | Purpose |
-|---|---|
-| `SQUAD_VA_DEV_MOCK` | Skip Squad VA API in dev |
-| `SQUAD_CHECKOUT_DEV_MOCK` | Skip Squad checkout API in dev |
-| `CONNECTOR_CREDENTIALS_KEY` | Fernet key for encrypting connector credentials |
-| `CONNECTORS_PUBLIC_BASE_URL` | Public URL for OAuth callbacks |
-| `CONNECTORS_OAUTH_STATE_SECRET` | HMAC secret for OAuth state tokens |
-| `GOOGLE_OAUTH_CLIENT_ID` | Google OAuth for Gmail connector |
-| `GOOGLE_OAUTH_CLIENT_SECRET` | Google OAuth for Gmail connector |
-| `GOOGLE_OAUTH_REDIRECT_URI` | Gmail OAuth callback URL |
-| `APP_LOG_LEVEL` | Override log level |
-| `APP_LOG_HTTP_BODIES` | Log request/response body previews |
-| `SESSION_COOKIE_SAMESITE` | Cookie SameSite policy (default: Lax) |
-| `SESSION_COOKIE_SECURE` | Require HTTPS for session cookie (default: False) |
-
-### New dependencies
-
-- `PyJWT` — JWT handling for connector OAuth
-- `google-auth-oauthlib` — Google OAuth flow for Gmail connector
-- `google-api-python-client` — Gmail API access
-
-## 2026-05-11 — Neon PostgreSQL via `DATABASE_URL`
-
-- **`DATABASE_URL`** in `.env` (gitignored) points Django at Neon instead of the default SQLite fallback.
-- **`.env.example`** documents Neon / pooled URLs and notes `sslmode=require`. Separate `DB_*` keys are not used by `settings.py` (only `dj-database-url` + `DATABASE_URL`).
+- **Structured logging** — `core/middleware.py` now logs all HTTP requests as JSON with request_id, user, duration, status

@@ -274,8 +274,9 @@ CREATE UNIQUE INDEX one_active_sub_per_user
   1. Reset the user's `token_wallet` balance (write a ledger entry of `-current_balance`, type `'period_reset'`).
   2. Credit the wallet with `plan.monthly_grant_bits` (entry type `'subscription_grant'`).
   3. Advance `current_period_start` and `current_period_end` by one month.
-- **Use-it-or-lose-it** for B2C subscriptions. Unused bits don't roll over. (B2B top-ups DO accrue — they're separate entries with no reset step.)
-- **Upgrade flow** (Free → Pro mid-period): on Squad mandate confirmation, cancel the free subscription, create a Pro subscription with `current_period_start = now()`, immediately credit the Pro grant. No proration.
+  4. **Note:** Only Pro subscriptions get monthly resets/grants. Free plan users receive a one-time 3-bit allotment at signup and do NOT get monthly renewals.
+- **Use-it-or-lose-it** for B2C Pro subscriptions. Unused bits don't roll over. (B2B top-ups DO accrue — they're separate entries with no reset step.)
+- **Upgrade flow** (Free → Pro mid-period): on Squad `charge_successful` webhook, the wallet is **reset to 0** (removing the 3 free bits), then **50 Pro bits are granted**. The subscription is updated to Pro with a new 30-day period. No proration — old free bits are forfeited.
 
 ---
 
