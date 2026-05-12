@@ -655,6 +655,41 @@ Creates a permanent Squad bank account for the organization. Once created, the o
 > [!NOTE]
 > `topups` returns the 25 most recent top-ups. `virtual_account` is `null` if no VA has been provisioned yet.
 
+#### Simulate VA Payment (Sandbox Only)
+
+`POST /api/bits/virtual-account/simulate-payment/` — **Requires auth + org membership. Sandbox only.**
+
+Triggers a simulated bank transfer to the org's virtual account via Squad's sandbox. This fires a real webhook from Squad, so you can test the full top-up flow end-to-end without doing an actual bank transfer.
+
+**Request:**
+```json
+{
+  "amount": "20000"
+}
+```
+- `amount`: Naira amount as a string. The VA account number is auto-filled from the org's record.
+
+**Response (200):**
+```json
+{
+  "transaction_status": "SUCCESS",
+  "merchant_reference": "your_custom_reference",
+  "merchant_amount": "20000.00",
+  "amount_received": "20000.00",
+  "transaction_reference": "REF20250321S51557521_M01282553_0855445055",
+  "email": "customer@email.com",
+  "merchant_id": "SQA...",
+  "sub_merchant_id": null,
+  "transaction_type": "dynamic_virtual_account"
+}
+```
+
+**403** if `SQUAD_BASE_URL` is not a sandbox URL.
+**404** if no VA has been provisioned.
+
+> [!TIP]
+> **Frontend implementation:** Add a small "Test Top-Up" button on the B2B wallet page (only visible when the backend is in sandbox mode). After calling this endpoint, poll `GET /api/bits/wallet/` every 2-3 seconds for ~15 seconds to see the balance update.
+
 #### List API Keys
 
 `GET /api/keys/` — **Requires auth + org membership.**

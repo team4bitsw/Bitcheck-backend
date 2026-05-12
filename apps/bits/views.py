@@ -162,3 +162,86 @@ def wallet_detail_view(request):
         'topups': topup_list,
         'virtual_account': va_info,
     })
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def simulate_va_payment_view(request):
+    """
+    Simulate a bank transfer to the org's virtual account (SANDBOX ONLY).
+
+    Proxies to Squad's sandbox simulate endpoint so the frontend can
+    test the top-up flow without a real bank transfer.
+
+    Request body:
+        amount: str — amount in naira (e.g., "20000")
+
+    The virtual_account_number is auto-filled from the org's VA record.
+    """
+    import requests as http_requests
+    from django.conf import settings as django_settings
+
+    # Only allow in sandbox/dev
+    base_url = getattr(django_settings, 'SQUAD_BASE_URL', '')
+    if 'sandbox' not in base_url:
+        return Response(
+            {'detail': 'Simulate payment is only available in sandbox mode.'},
+            status=status.HTTP_403_FORBIDDEN,
+        )
+
+    org, error = _get_user_organization(request.user)
+    if error:
+        return error
+
+    # Get the org's virtual account
+    va = VirtualAccount.objects.filter(organization=org).first()
+    if not va:
+        return Response(
+            {'detail': 'No virtual account provisioned. Provision one first via POST /api/bits/virtual-account/provision/'},
+            status=status.HTTP_404_NOT_FOUND,
+        )
+
+    amount = request.data.get('amount', '').strip()
+    if not amount:
+        return Response(
+            {'detail': 'amount is required (naira string, e.g., "20000").'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    # Proxy to Squad sandbox simulate endpoint
+    url = f'{base_url}/virtual-account/simulate/payment'
+    headers = {
+        'Authorization': f'Bearer {django_settings.SQUAD_SECRET_KEY}',
+        'Content-Type': 'application/json',
+    }
+    payload = {
+        'virtual_account_number': va.account_number,
+        'amount': str(amount),
+    }
+
+    print(f'[SIMULATE] Sending to {url}')
+    print(f'[SIMULATE] Payload: {payload}')
+
+    try:
+        resp = http_requests.post(url, json=payload, headers=headers, timeout=15)
+        print(f'[SIMULATE] Response status: {resp.status_code}')
+        print(f'[SIMULATE] Response body: {resp.text[:500]}')
+
+        if resp.status_code in (200, 201):
+            return Response({
+                'detail': f'Simulated payment of ₦{amount} to VA {va.account_number}. Webhook will arrive shortly.',
+                'squad_response': resp.json() if resp.text else {},
+            })
+        else:
+            return Response(
+                {'detail': f'Squad simulate failed ({resp.status_code}): {resp.text[:300]}'},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+
+    except http_requests.RequestException as e:
+        print(f'[SIMULATE] ❌ Request failed: {e}')
+        return Response(
+            {'detail': f'Squad API request failed: {str(e)}'},
+            status=status.HTTP_502_BAD_GATEWAY,
+        )
+
