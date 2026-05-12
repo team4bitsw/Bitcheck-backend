@@ -6,6 +6,7 @@ Config loaded from .env via python-decouple.
 """
 
 import os
+import ssl
 from pathlib import Path
 from decouple import config, Csv
 from dotenv import load_dotenv
@@ -254,11 +255,31 @@ CSRF_TRUSTED_ORIGINS = config(
 )
 
 
+def _rediss_url_ensure_ssl_cert(url: str) -> str:
+    """
+    redis-py 7: ``rediss://`` URLs often need ``ssl_cert_reqs`` in the query string
+    for clients that do not take a separate SSL dict (e.g. Django cache ``LOCATION``).
+    Celery loads broker/result URLs without preserving that query — use
+    ``CELERY_BROKER_USE_SSL`` / ``CELERY_REDIS_BACKEND_USE_SSL`` below.
+    """
+    u = (url or '').strip()
+    if not u.startswith('rediss://'):
+        return u
+    if 'ssl_cert_reqs=' in u:
+        return u
+    joiner = '&' if '?' in u else '?'
+    return f'{u}{joiner}ssl_cert_reqs=CERT_REQUIRED'
+
+
 # ============================================================
 # Celery — Redis broker
 # ============================================================
 CELERY_BROKER_URL = config('CELERY_BROKER_URL', default='redis://localhost:6379/0')
-CELERY_RESULT_BACKEND = config('CELERY_RESULT_BACKEND', default='redis://localhost:6379/1')
+CELERY_RESULT_BACKEND = config('CELERY_RESULT_BACKEND', default='redis://localhost:6379/0')
+if str(CELERY_BROKER_URL).startswith('rediss://'):
+    CELERY_BROKER_USE_SSL = {'ssl_cert_reqs': ssl.CERT_REQUIRED}
+if str(CELERY_RESULT_BACKEND).startswith('rediss://'):
+    CELERY_REDIS_BACKEND_USE_SSL = {'ssl_cert_reqs': ssl.CERT_REQUIRED}
 CELERY_ACCEPT_CONTENT = ['json']
 CELERY_TASK_SERIALIZER = 'json'
 CELERY_RESULT_SERIALIZER = 'json'
@@ -339,7 +360,9 @@ GOOGLE_OAUTH_REDIRECT_URI = config(
     default='http://localhost:8000/api/connectors/oauth/gmail/callback/',
 ).strip()
 
-_REDIS_CACHE_URL = config('REDIS_CACHE_URL', default='')
+_REDIS_CACHE_URL = _rediss_url_ensure_ssl_cert(
+    config('REDIS_CACHE_URL', default='').strip(),
+)
 if _REDIS_CACHE_URL:
     CACHES = {
         'default': {
