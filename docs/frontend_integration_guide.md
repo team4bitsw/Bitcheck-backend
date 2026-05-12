@@ -439,28 +439,21 @@ const pollVerification = async (id: string): Promise<Verification> => {
 Uploads an image directly and runs it through the BitCheck ML pipeline. Returns the full AI analysis inline — no polling needed. Costs **2 bits** on success.
 
 > [!TIP]
-> This is the simplest way to verify images. Unlike `POST /api/verifications/` which requires a pre-uploaded S3 file reference, this endpoint accepts the raw image file directly.
+> This is the simplest way to verify images. The backend sends `user_gmail` (from your session) + the file to the ML service automatically. All analysis layers (model, forensics, metadata, provenance, explainability) run by default.
 
 **Request (multipart/form-data):**
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `file` | image file | **Yes** | `.jpg`, `.jpeg`, `.png`, `.webp` — max 20 MB |
+| `file` | image file | **Yes** | `.jpg`, `.jpeg`, `.png`, `.webp` — max **12 MB** |
 | `label` | string | No | User/data identifier — e.g., `"invoice_q4"`, `"user_john_avatar"`, a slug, or any tracking ref |
-| `run_explainability` | string | No | `"true"` / `"false"` — Grad-CAM heatmap & hotspot boxes (default: `true`) |
-| `run_ocr` | string | No | `"true"` / `"false"` — check visible watermark/text (default: `true`) |
-| `run_c2pa` | string | No | `"true"` / `"false"` — check C2PA content credentials (default: `true`) |
-| `threshold` | string | No | Custom AI detection threshold, e.g., `"0.62"` |
 
 **cURL example:**
 ```bash
 curl -X POST "https://bitscheck-849221325853.europe-west1.run.app/api/verifications/verify/image/" \
   -H "Cookie: sessionid=YOUR_SESSION_COOKIE" \
   -F "file=@suspicious_image.jpg" \
-  -F "label=audit_report_may2026" \
-  -F "run_explainability=true" \
-  -F "run_ocr=true" \
-  -F "run_c2pa=true"
+  -F "label=audit_report_may2026"
 ```
 
 **Response (200):**
@@ -480,65 +473,88 @@ curl -X POST "https://bitscheck-849221325853.europe-west1.run.app/api/verificati
       "sha256": "b1ddf2f9f25c0f9adf...",
       "file_size_bytes": 248391,
       "ml_verification_id": "8d53cf77-2b2d-4d55-b6a9-...",
+      "user_gmail": "user@gmail.com",
+      "input": {
+        "filename": "suspicious_image.jpg",
+        "sha256": "...",
+        "width": 1920,
+        "height": 1080,
+        "format": "JPEG",
+        "size_bytes": 248391
+      },
       "model_result": {
-        "predicted_label": "likely_ai_generated",
-        "real_probability": 0.1372,
-        "ai_generated_probability": 0.8628,
-        "threshold": 0.62
+        "label": "ai_generated",
+        "confidence": 0.87,
+        "model_status": "loaded"
       },
       "metadata": {
-        "camera_metadata_found": false,
-        "software": "Adobe Photoshop",
-        "editing_software_detected": true
+        "exif": {},
+        "software_flags": ["Adobe Photoshop"],
+        "camera_metadata_found": false
       },
       "provenance": {
-        "c2pa_found": false,
-        "status": "missing"
+        "status": "not_available",
+        "c2pa_found": false
       },
       "forensics": {
-        "manipulation_risk_score": 0.41,
-        "sharpness_score": 118.6,
-        "compression_risk": 0.33,
-        "artifact_flags": ["Moderate compression artifacts detected"]
+        "sharpness": 118.6,
+        "noise_inconsistency": 0.48,
+        "compression_artifacts": 0.33
       },
       "explainability": {
+        "status": "generated",
         "method": "Grad-CAM",
-        "heatmap_url": "/outputs/8d53cf77_heatmap.jpg",
-        "boxed_image_url": "/outputs/8d53cf77_boxed.jpg",
+        "heatmap_url": "/outputs/8d53cf77_heatmap.png",
+        "boxed_image_url": "/outputs/8d53cf77_boxed.png",
         "hotspots": [
-          { "x": 114, "y": 88, "width": 231, "height": 166, "score": 0.78 }
-        ]
+          { "x": 114, "y": 88, "width": 50, "height": 50, "score": 0.85, "label": "high influence region" }
+        ],
+        "disclaimer": "Hotspots show regions that influenced the model's prediction..."
       },
       "trust": {
-        "trust_score": 31,
-        "risk_level": "High Risk",
-        "decision": "block_or_manual_review"
+        "score": 31.2,
+        "label": "high_risk",
+        "breakdown": { "model_weight": 0.5, "metadata_weight": 0.2, "forensics_weight": 0.15, "provenance_weight": 0.15 }
       },
       "risk_flags": [
-        "AI-generated probability is high.",
+        "AI-generated content detected by model.",
         "No trusted C2PA provenance metadata found."
+      ],
+      "limitations": [
+        "BitCheck does not make absolute claims about image authenticity.",
+        "AI-generated image detection is probabilistic and may produce false positives or false negatives."
       ]
     },
     "error_message": null,
-    "created_at": "2026-05-12T17:00:00Z",
-    "completed_at": "2026-05-12T17:00:03Z"
+    "created_at": "2026-05-13T00:00:00Z",
+    "completed_at": "2026-05-13T00:00:03Z"
   }
 }
 ```
 
+**Key fields for the UI:**
+
+| Field | What to display |
+|---|---|
+| `verification.trust_score` | Trust gauge (0–100). Higher = more trustworthy. |
+| `verification.verdict` | Badge: `authentic` / `inconclusive` / `suspicious` / `manipulated` |
+| `result_summary.model_result.label` | `"real"` or `"ai_generated"` |
+| `result_summary.model_result.confidence` | Confidence score (0–1), e.g., "87% confident" |
+| `result_summary.trust.label` | `"low_risk"` / `"moderate_risk"` / `"high_risk"` |
+| `result_summary.risk_flags` | Bullet list of red flags |
+| `result_summary.explainability.hotspots` | Overlay boxes on the image |
+| `result_summary.explainability.heatmap_url` | Grad-CAM heatmap (relative to ML base URL) |
+
 **Error responses:**
-- **400** — Missing file, unsupported type, file too large, or ML service error
+- **400** — Missing file, unsupported type, file too large (>12 MB), or ML service error
 - **402** — Insufficient bits: `{ "detail": "Insufficient bits for image verification.", "required": 2, "available": 0 }`
 
 **Frontend implementation (JavaScript FormData):**
 ```javascript
 const verifyImage = async (file, label = '') => {
   const form = new FormData();
-  form.append('file', file);               // File object from <input type="file">
-  form.append('label', label);             // Your tracking identifier
-  form.append('run_explainability', 'true');
-  form.append('run_ocr', 'true');
-  form.append('run_c2pa', 'true');
+  form.append('file', file);     // File object from <input type="file">
+  form.append('label', label);   // Optional tracking identifier
 
   const response = await fetch('/api/verifications/verify/image/', {
     method: 'POST',

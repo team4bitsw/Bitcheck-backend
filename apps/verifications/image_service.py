@@ -4,11 +4,15 @@ Image verification service — direct upload to ML service.
 Handles the image verification flow without requiring S3:
   1. Accept image upload directly from the user
   2. Compute SHA256 hash
-  3. Forward to ML service's POST /verify/image
+  3. Forward to ML service's POST /verify/image with user_gmail + file
   4. Map the ML response to our Verification model
   5. Debit bits on success
 
-This bypasses the S3-based UploadedFile flow since S3 isn't provisioned yet.
+ML API contract (BitCheck Image Verification API):
+  - Endpoint: POST {ML_SERVICE_BASE_URL}/verify/image
+  - Form fields: user_gmail (required), file (required)
+  - Max upload: 12 MB
+  - Accepted: JPG, JPEG, PNG, WEBP
 """
 
 import hashlib
@@ -34,29 +38,59 @@ logger = logging.getLogger(__name__)
 ALLOWED_IMAGE_TYPES = {
     'image/jpeg', 'image/png', 'image/webp', 'image/jpg',
 }
-MAX_IMAGE_SIZE = 20 * 1024 * 1024  # 20 MB
+MAX_IMAGE_SIZE = 12 * 1024 * 1024  # 12 MB (ML service limit)
+
+
+def _map_ml_response(ml_result, label, image_file, file_hash):
+    """
+    Map the ML service response to our result_summary format.
+
+    The ML API returns fields like trust.score and model_result.label/confidence
+    which we normalize into our internal schema.
+    """
+    trust_data = ml_result.get('trust', {})
+    # ML returns trust.score (float), we store as int trust_score
+    trust_score_raw = trust_data.get('score', 50)
+    trust_score = int(round(trust_score_raw))
+
+    result_summary = {
+        'label': label or '',
+        'original_filename': image_file.name,
+        'sha256': file_hash,
+        'file_size_bytes': image_file.size,
+        'ml_verification_id': ml_result.get('verification_id'),
+        'user_gmail': ml_result.get('user_gmail', ''),
+        'input': ml_result.get('input', {}),
+        'model_result': ml_result.get('model_result', {}),
+        'metadata': ml_result.get('metadata', {}),
+        'provenance': ml_result.get('provenance', {}),
+        'visible_watermark': ml_result.get('visible_watermark', {}),
+        'forensics': ml_result.get('forensics', {}),
+        'explainability': ml_result.get('explainability', {}),
+        'trust': trust_data,
+        'risk_flags': ml_result.get('risk_flags', []),
+        'limitations': ml_result.get('limitations', []),
+    }
+
+    return trust_score, result_summary
 
 
 def verify_image_direct(
     user,
     image_file,
     label=None,
-    run_explainability=True,
-    run_ocr=True,
-    run_c2pa=True,
-    threshold=None,
 ):
     """
     Submit an image for verification directly (no S3 upload needed).
+
+    The ML service requires user_gmail (pulled from user.email) and the image file.
+    All analysis layers (model, forensics, metadata, provenance, explainability)
+    run automatically — no optional flags needed.
 
     Args:
         user:               The authenticated User.
         image_file:         Django UploadedFile (from request.FILES).
         label:              Optional user-provided label/identifier for this check.
-        run_explainability: Whether to generate Grad-CAM heatmap.
-        run_ocr:            Whether to check for visible watermarks.
-        run_c2pa:           Whether to check C2PA provenance.
-        threshold:          Optional custom AI detection threshold.
 
     Returns:
         (Verification, ml_result_dict) — the saved verification + full ML response.
@@ -118,11 +152,10 @@ def verify_image_direct(
 
     print(f'[IMAGE-VERIFY] Created verification {verification.id}')
     print(f'[IMAGE-VERIFY] File: {image_file.name}, size={image_file.size}, hash={file_hash[:16]}...')
-    print(f'[IMAGE-VERIFY] Label: {label or "(none)"}')
+    print(f'[IMAGE-VERIFY] Label: {label or "(none)"}, user: {user.email}')
 
     # --- Mock or Real ML call ---
     if getattr(settings, 'ML_MOCK_RESPONSE', False):
-        # Return a mock response when ML service is unavailable
         from .mock_ml import generate_mock_ml_response
         print(f'[IMAGE-VERIFY] ⚠️ ML_MOCK_RESPONSE=True — returning mock result')
 
@@ -130,29 +163,13 @@ def verify_image_direct(
             filename=image_file.name,
             file_size_bytes=image_file.size,
             sha256_hash=file_hash,
+            user_gmail=user.email,
         )
 
-        trust_data = ml_result.get('trust', {})
-        trust_score = trust_data.get('trust_score', 50)
-
-        result_summary = {
-            'label': label or '',
-            'original_filename': image_file.name,
-            'sha256': file_hash,
-            'file_size_bytes': image_file.size,
-            'ml_verification_id': ml_result.get('verification_id'),
-            'input': ml_result.get('input', {}),
-            'model_result': ml_result.get('model_result', {}),
-            'metadata': ml_result.get('metadata', {}),
-            'provenance': ml_result.get('provenance', {}),
-            'visible_watermark': ml_result.get('visible_watermark', {}),
-            'forensics': ml_result.get('forensics', {}),
-            'explainability': ml_result.get('explainability', {}),
-            'trust': trust_data,
-            'risk_flags': ml_result.get('risk_flags', []),
-            'limitations': ml_result.get('limitations', []),
-            '_mock': True,
-        }
+        trust_score, result_summary = _map_ml_response(
+            ml_result, label, image_file, file_hash,
+        )
+        result_summary['_mock'] = True
 
         verification = complete_verification(
             verification_id=verification.id,
@@ -169,19 +186,15 @@ def verify_image_direct(
     # --- Real ML service call ---
     ml_url = f'{settings.ML_SERVICE_BASE_URL}/verify/image'
 
-    # Build multipart form data
+    # ML API requires: user_gmail + file (multipart/form-data)
     files = {
         'file': (image_file.name, image_file, content_type),
     }
     form_data = {
-        'run_explainability': str(run_explainability).lower(),
-        'run_ocr': str(run_ocr).lower(),
-        'run_c2pa': str(run_c2pa).lower(),
+        'user_gmail': user.email,
     }
-    if threshold is not None:
-        form_data['threshold'] = str(threshold)
 
-    print(f'[IMAGE-VERIFY] Sending to ML: {ml_url}')
+    print(f'[IMAGE-VERIFY] Sending to ML: {ml_url} (user_gmail={user.email})')
 
     try:
         resp = requests.post(
@@ -195,30 +208,13 @@ def verify_image_direct(
 
         if resp.status_code == 200:
             ml_result = resp.json()
-            print(f'[IMAGE-VERIFY] ML trust_score: {ml_result.get("trust", {}).get("trust_score")}')
 
-            # Map ML response to our model
-            trust_data = ml_result.get('trust', {})
-            trust_score = trust_data.get('trust_score', 50)
+            trust_score, result_summary = _map_ml_response(
+                ml_result, label, image_file, file_hash,
+            )
 
-            # Build result_summary from ML response
-            result_summary = {
-                'label': label or '',
-                'original_filename': image_file.name,
-                'sha256': file_hash,
-                'file_size_bytes': image_file.size,
-                'ml_verification_id': ml_result.get('verification_id'),
-                'input': ml_result.get('input', {}),
-                'model_result': ml_result.get('model_result', {}),
-                'metadata': ml_result.get('metadata', {}),
-                'provenance': ml_result.get('provenance', {}),
-                'visible_watermark': ml_result.get('visible_watermark', {}),
-                'forensics': ml_result.get('forensics', {}),
-                'explainability': ml_result.get('explainability', {}),
-                'trust': trust_data,
-                'risk_flags': ml_result.get('risk_flags', []),
-                'limitations': ml_result.get('limitations', []),
-            }
+            print(f'[IMAGE-VERIFY] ML trust_score: {trust_score}, '
+                  f'model_label: {ml_result.get("model_result", {}).get("label")}')
 
             # Complete the verification (debits wallet)
             verification = complete_verification(
