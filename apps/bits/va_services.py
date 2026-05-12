@@ -138,8 +138,12 @@ def provision_virtual_account(organization, bvn, mobile_num):
         'business_name': biz_name,
         'mobile_num': mobile_num,
         'bvn': bvn,
-        # NO beneficiary_account — funds go to our Squad wallet
     }
+
+    # Squad sandbox requires beneficiary_account even though docs say optional
+    beneficiary = getattr(settings, 'SQUAD_BENEFICIARY_ACCOUNT', '').strip()
+    if beneficiary:
+        payload['beneficiary_account'] = beneficiary
 
     url = f'{settings.SQUAD_BASE_URL}/virtual-account/business'
 
