@@ -1,11 +1,14 @@
 """
-Verification views — submission and result retrieval.
+Verification views — submission, retrieval, and deletion.
 
 Endpoints:
-  POST /api/verifications/                — submit a new verification (B2C)
-  GET  /api/verifications/                — list user's verifications (B2C)
-  GET  /api/verifications/<id>/           — get verification detail
-  GET  /api/verifications/costs/          — get verification costs per modality
+  POST   /api/verifications/                — submit a new verification (B2C)
+  GET    /api/verifications/                — list user's verifications (B2C)
+  DELETE /api/verifications/                — delete ALL user's verifications
+  GET    /api/verifications/<id>/           — get verification detail
+  DELETE /api/verifications/<id>/           — soft-delete a single verification
+  GET    /api/verifications/costs/          — get verification costs per modality
+  POST   /api/verifications/verify/image/   — direct image verification
 """
 
 from django.conf import settings
@@ -40,13 +43,25 @@ def verification_costs_view(request):
     })
 
 
-@api_view(['GET', 'POST'])
+@api_view(['GET', 'POST', 'DELETE'])
 @permission_classes([IsAuthenticated])
 def verification_list_view(request):
     """
-    GET:  List the current user's verifications (paginated).
-    POST: Submit a new B2C verification.
+    GET:    List the current user's verifications.
+    POST:   Submit a new B2C verification.
+    DELETE: Soft-delete ALL of the current user's verifications.
     """
+    if request.method == 'DELETE':
+        from django.utils import timezone
+        count = Verification.objects.filter(
+            user=request.user,
+            deleted_at__isnull=True,
+        ).update(deleted_at=timezone.now())
+        return Response({
+            'detail': f'{count} verification(s) deleted.',
+            'count': count,
+        })
+
     if request.method == 'GET':
         verifications = Verification.objects.filter(
             user=request.user,
@@ -95,12 +110,15 @@ def verification_list_view(request):
     )
 
 
-@api_view(['GET'])
+@api_view(['GET', 'DELETE'])
 @permission_classes([IsAuthenticated])
 def verification_detail_view(request, verification_id):
     """
-    Get a single verification's full details including results.
+    GET:    Get a single verification's full details including results.
+    DELETE: Soft-delete a single verification (sets deleted_at timestamp).
     """
+    from django.utils import timezone
+
     try:
         verification = Verification.objects.get(
             pk=verification_id,
@@ -111,6 +129,14 @@ def verification_detail_view(request, verification_id):
         return Response(
             {'detail': 'Verification not found.'},
             status=status.HTTP_404_NOT_FOUND,
+        )
+
+    if request.method == 'DELETE':
+        verification.deleted_at = timezone.now()
+        verification.save(update_fields=['deleted_at'])
+        return Response(
+            {'detail': f'Verification {verification_id} deleted.'},
+            status=status.HTTP_200_OK,
         )
 
     return Response({

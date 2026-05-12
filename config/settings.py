@@ -12,9 +12,7 @@ from decouple import config, Csv
 from dotenv import load_dotenv
 import dj_database_url
 
-# ============================================================
 # Paths
-# ============================================================
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 # Always load project-root .env (cwd-independent). Cloud Run: ship only these vars (or this file).
@@ -31,18 +29,15 @@ def _env_truthy(name: str, *, default: bool = False) -> bool:
         raw = config(name, default=default_s)
     return str(raw).strip().lower() in ('1', 'true', 'yes', 'on')
 
-# ============================================================
+
 # Security
-# ============================================================
 SECRET_KEY = config('SECRET_KEY')
 #  Iv deleted staticfile, add collectstatic to our dockerfile, ensuring it will run when clour run notices a change on github
 DEBUG = config('DEBUG', default=True, cast=bool)
 ALLOWED_HOSTS = config('ALLOWED_HOSTS', default='', cast=Csv())
 
 
-# ============================================================
 # Application definition
-# ============================================================
 DJANGO_APPS = [
     'django.contrib.admin',
     'django.contrib.auth',
@@ -73,9 +68,7 @@ LOCAL_APPS = [
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
 
 
-# ============================================================
 # Middleware
-# ============================================================
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
     'whitenoise.middleware.WhiteNoiseMiddleware',
@@ -90,17 +83,13 @@ MIDDLEWARE = [
 ]
 
 
-# ============================================================
 # URL / WSGI / ASGI
-# ============================================================
 ROOT_URLCONF = 'config.urls'
 WSGI_APPLICATION = 'config.wsgi.application'
 ASGI_APPLICATION = 'config.asgi.application'
 
 
-# ============================================================
 # Templates
-# ============================================================
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
@@ -117,13 +106,11 @@ TEMPLATES = [
 ]
 
 
-# ============================================================
 # Database — uses DATABASE_URL, falls back to SQLite
 # Examples:
 #   PostgreSQL: DATABASE_URL=postgres://user:pass@localhost:5432/bitcheck
 #   SQLite:     DATABASE_URL=sqlite:///path/to/db.sqlite3
 #   (or omit DATABASE_URL entirely to use SQLite)
-# ============================================================
 _SQLITE_DEFAULT = f'sqlite:///{BASE_DIR / "db.sqlite3"}'
 
 DATABASES = {
@@ -135,9 +122,7 @@ DATABASES = {
 }
 
 
-# ============================================================
 # Custom User Model — MUST be set before first migration
-# ============================================================
 AUTH_USER_MODEL = 'accounts.User'
 
 AUTHENTICATION_BACKENDS = [
@@ -145,9 +130,7 @@ AUTHENTICATION_BACKENDS = [
 ]
 
 
-# ============================================================
 # Password validation
-# ============================================================
 AUTH_PASSWORD_VALIDATORS = [
     {'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator'},
     {'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator'},
@@ -156,18 +139,14 @@ AUTH_PASSWORD_VALIDATORS = [
 ]
 
 
-# ============================================================
 # Internationalization
-# ============================================================
 LANGUAGE_CODE = 'en-us'
 TIME_ZONE = 'UTC'
 USE_I18N = True
 USE_TZ = True
 
 
-# ============================================================
 # Static files — served by WhiteNoise in production
-# ============================================================
 STATIC_URL = 'static/'
 STATIC_ROOT = BASE_DIR / 'staticfiles'
 STORAGES = {
@@ -178,15 +157,11 @@ STORAGES = {
 }
 
 
-# ============================================================
 # Default primary key field type
-# ============================================================
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 
-# ============================================================
 # Django REST Framework
-# ============================================================
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': [
         'apps.accounts.authentication.CsrfExemptSessionAuthentication',
@@ -212,9 +187,7 @@ REST_FRAMEWORK = {
 }
 
 
-# ============================================================
 # drf-spectacular — OpenAPI / Swagger
-# ============================================================
 SPECTACULAR_SETTINGS = {
     'TITLE': 'Bitcheck AI API',
     'DESCRIPTION': 'Multi-modal AI verification platform — backend API.',
@@ -225,9 +198,7 @@ SPECTACULAR_SETTINGS = {
 }
 
 
-# ============================================================
 # CORS — allow the Next.js frontend
-# ============================================================
 CORS_ALLOWED_ORIGINS = config(
     'CORS_ALLOWED_ORIGINS',
     default='http://localhost:3000',
@@ -236,9 +207,7 @@ CORS_ALLOWED_ORIGINS = config(
 CORS_ALLOW_CREDENTIALS = True  # needed for session cookies
 
 
-# ============================================================
 # Session — DB-backed (simplest for hackathon)
-# ============================================================
 SESSION_ENGINE = 'django.contrib.sessions.backends.db'
 SESSION_COOKIE_AGE = 60 * 60 * 24 * 7  # 1 week
 SESSION_COOKIE_HTTPONLY = True
@@ -271,9 +240,7 @@ def _rediss_url_ensure_ssl_cert(url: str) -> str:
     return f'{u}{joiner}ssl_cert_reqs=CERT_REQUIRED'
 
 
-# ============================================================
 # Celery — Redis broker
-# ============================================================
 CELERY_BROKER_URL = config('CELERY_BROKER_URL', default='redis://localhost:6379/0')
 CELERY_RESULT_BACKEND = config('CELERY_RESULT_BACKEND', default='redis://localhost:6379/0')
 if str(CELERY_BROKER_URL).startswith('rediss://'):
@@ -299,9 +266,7 @@ CELERY_BEAT_SCHEDULE = {
 }
 
 
-# ============================================================
 # Bitcheck — Token Economy
-# ============================================================
 # ₦100 = 1 bit token. This rate is snapshotted per top-up.
 BITCHECK_NAIRA_PER_BIT = config('BITCHECK_NAIRA_PER_BIT', default=100, cast=int)
 
@@ -315,9 +280,7 @@ BITCHECK_VERIFICATION_COSTS = {
 }
 
 
-# ============================================================
 # Connectors (Gmail, Slack, Telegram, …)
-# ============================================================
 CONNECTOR_CREDENTIALS_KEY = config(
     'CONNECTOR_CREDENTIALS_KEY',
     default='YLuDPrZbz0GWCzAYnnTZaf6Vu0TG3uRbmtdQhTnSzMk=',
@@ -378,25 +341,19 @@ else:
     }
 
 
-# ============================================================
 # Google OAuth (Sign-In with Google — ID token audience)
-# ============================================================
 GOOGLE_CLIENT_ID = (
     config('GOOGLE_CLIENT_ID', default='').strip() or GOOGLE_OAUTH_CLIENT_ID
 )
 
 
-# ============================================================
 # Squad Payment Gateway
-# ============================================================
 SQUAD_SECRET_KEY = config('SQUAD_SECRET_KEY', default='').strip()
 SQUAD_WEBHOOK_SECRET = config('SQUAD_WEBHOOK_SECRET', default='').strip()
 SQUAD_BASE_URL = config('SQUAD_BASE_URL', default='https://sandbox-api-d.squadco.com').strip().rstrip('/')
-# Skip Squad API and create a local VA row (demos when B2B VA is not profiled). Never enable in production.
 SQUAD_VA_DEV_MOCK = _env_truthy('SQUAD_VA_DEV_MOCK', default=False)
 # Skip Squad checkout and return a mock URL (demos when sandbox returns 403). Never enable in production.
 SQUAD_CHECKOUT_DEV_MOCK = _env_truthy('SQUAD_CHECKOUT_DEV_MOCK', default=False)
-# GTBank 10-digit account number for VA payouts. Squad sandbox requires this.
 SQUAD_BENEFICIARY_ACCOUNT = config('SQUAD_BENEFICIARY_ACCOUNT', default='').strip()
 # Abandoned Pro card checkout: ``incomplete`` rows older than this are canceled and a free plan is restored (if nothing else is active).
 BILLING_INCOMPLETE_CHECKOUT_TTL_HOURS = config(
