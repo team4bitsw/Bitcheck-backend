@@ -7,6 +7,7 @@ import logging
 import uuid
 
 import boto3
+from botocore.config import Config
 from botocore.exceptions import BotoCoreError, ClientError
 from django.conf import settings
 
@@ -44,7 +45,14 @@ def upload_bytes_for_connector_owner(
     if endpoint:
         client_kwargs['endpoint_url'] = endpoint
 
-    client = boto3.client('s3', **client_kwargs)
+    client = boto3.client(
+        's3',
+        **client_kwargs,
+        config=Config(
+            signature_version='s3v4',
+            s3={'addressing_style': 'path'},
+        ),
+    )
     try:
         client.put_object(
             Bucket=bucket,

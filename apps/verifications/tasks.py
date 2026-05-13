@@ -71,6 +71,26 @@ def process_verification(self, verification_id):
     # Build the ML request payload
     payload = _build_ml_payload(verification)
 
+    # --- Mock mode (ML_MOCK_RESPONSE=True) ---
+    if getattr(settings, 'ML_MOCK_RESPONSE', False):
+        from .mock_ml import generate_mock_ml_response
+        uf = verification.uploaded_file
+        mock = generate_mock_ml_response(
+            filename=uf.original_filename if uf else 'unknown',
+            file_size_bytes=uf.size_bytes if uf else 0,
+            sha256_hash=uf.sha256 if uf else '',
+            user_gmail=verification.user.email if verification.user else '',
+        )
+        trust_score = mock['trust']['score']
+        complete_verification(
+            verification_id=verification.id,
+            trust_score=trust_score,
+            result_summary=mock,
+            ml_response_raw=mock,
+        )
+        logger.info(f'Verification {verification_id} completed via mock. Score: {trust_score}')
+        return
+
     try:
         # Call the ML service
         response = requests.post(
