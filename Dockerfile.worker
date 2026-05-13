@@ -1,0 +1,32 @@
+# Celery worker — deploy as a separate Cloud Run service.
+# Uses the same image as the web server but runs the worker instead of gunicorn.
+# Cloud Run requires an HTTP listener, so we run a lightweight health-check
+# server alongside the worker.
+
+FROM python:3.12-slim-bookworm
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
+
+WORKDIR /app
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends libpq5 \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY requirements.txt .
+RUN pip install --upgrade pip && pip install -r requirements.txt
+
+COPY . .
+
+RUN useradd --create-home --uid 10001 appuser \
+    && chown -R appuser:appuser /app
+USER appuser
+
+EXPOSE 8080
+
+# Start the Celery worker. A background thread serves health check responses
+# on $PORT so Cloud Run considers the instance healthy.
+CMD ["python", "worker_start.py"]

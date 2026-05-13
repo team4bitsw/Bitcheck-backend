@@ -36,6 +36,9 @@ from .serializers import (
     ConnectorInstallWriteSettingsSerializer,
     ConnectorTypeSerializer,
 )
+import threading
+
+from .pipeline import process_event_inline
 from .tasks import process_connector_event
 
 logger = logging.getLogger(__name__)
@@ -112,28 +115,27 @@ class ConnectorWebhookView(View):
             },
         )
         if not created:
-            # If the event exists but was never queued (e.g. Celery was down when
-            # the first request came in), requeue it so it doesn't get stuck.
+            # Restart processing if the event got stuck (e.g. previous request crashed).
             if event.status == ConnectorEvent.Status.RECEIVED:
-                try:
-                    process_connector_event.delay(str(event.id))
-                except Exception:
-                    logger.exception('Failed to requeue connector event %s', event.id)
+                threading.Thread(
+                    target=process_event_inline,
+                    args=(str(event.id),),
+                    daemon=True,
+                ).start()
             return JsonResponse({'status': 'duplicate'}, status=200)
 
-        try:
-            process_connector_event.delay(str(event.id))
-        except Exception:
-            logger.exception('Failed to queue connector event %s — will rely on Telegram retry', event.id)
-            # Delete the event so Telegram's next retry creates it fresh and queues it properly.
-            event.delete()
-            return JsonResponse({'detail': 'Queue unavailable, please retry.'}, status=503)
-
-        # Send immediate acknowledgment so the user knows we got their message.
+        # Send immediate acknowledgment before starting processing.
         try:
             adapter.acknowledge_event(ctx, parsed)
         except Exception:
             logger.exception('acknowledge_event failed for event %s', event.id)
+
+        # Run the full pipeline in a background thread — no Celery worker needed.
+        threading.Thread(
+            target=process_event_inline,
+            args=(str(event.id),),
+            daemon=True,
+        ).start()
 
         return JsonResponse({'status': 'queued'}, status=200)
 
