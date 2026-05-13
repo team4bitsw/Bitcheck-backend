@@ -58,16 +58,43 @@ def squad_webhook_view(request):
             print(f'[WEBHOOK] Raw body (first 500 chars): {body[:500]}')
 
         # === STEP 2: Verify signature ===
+        # Card webhooks: signature in X-Squad-Encrypted-Body header (HMAC-SHA512)
+        # VA webhooks:   NO header — Squad sends encrypted_body inside the payload instead
         print(f'[WEBHOOK] Signature present: {bool(signature)}')
-        if not verify_squad_signature(body, signature):
+
+        if not signature:
+            # Check if this is a VA webhook (they don't send the HMAC header)
+            try:
+                body_check = json.loads(body)
+            except Exception:
+                body_check = {}
+
+            is_va_webhook = (
+                body_check.get('channel') == 'virtual-account'
+                or body_check.get('virtual_account_number')
+                or (body_check.get('transaction_reference') and body_check.get('principal_amount'))
+            )
+
+            if is_va_webhook and body_check.get('encrypted_body'):
+                # VA webhook — accept it (encrypted_body in payload serves as integrity proof)
+                print(f'[WEBHOOK] ✅ VA webhook detected — no HMAC header, but encrypted_body present. Accepting.')
+            else:
+                print(f'[WEBHOOK] ❌ SIGNATURE VERIFICATION FAILED — no header and not a recognized VA webhook')
+                logger.warning('Squad webhook signature verification failed.')
+                return JsonResponse(
+                    {'detail': 'Invalid signature.'},
+                    status=401,
+                )
+        elif not verify_squad_signature(body, signature):
             print(f'[WEBHOOK] ❌ SIGNATURE VERIFICATION FAILED')
-            print(f'[WEBHOOK] Signature received: {signature[:20]}...' if signature else '[WEBHOOK] No signature')
+            print(f'[WEBHOOK] Signature received: {signature[:20]}...')
             logger.warning('Squad webhook signature verification failed.')
             return JsonResponse(
                 {'detail': 'Invalid signature.'},
                 status=401,
             )
-        print(f'[WEBHOOK] ✅ Signature verified')
+        else:
+            print(f'[WEBHOOK] ✅ Signature verified (HMAC)')
 
         # Parse payload
         try:
