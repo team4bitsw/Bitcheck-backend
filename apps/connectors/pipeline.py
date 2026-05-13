@@ -63,9 +63,19 @@ def _enforce_quota(install: ConnectorInstall, required_bits: int) -> None:
 # Per-modality ML callers (mirror image_service.py / text_service.py)
 # ---------------------------------------------------------------------------
 
+def _make_absolute_url(path: str, base: str) -> str:
+    """Turn a relative ML-service path into a full URL."""
+    if not path:
+        return path
+    if path.startswith('http://') or path.startswith('https://'):
+        return path
+    return base.rstrip('/') + ('/' if not path.startswith('/') else '') + path
+
+
 def _call_image_ml(content: VerifiableContent, user_email: str) -> tuple[int, dict]:
     """Send image bytes to the real image ML service. Returns (trust_score, result_summary)."""
-    ml_url = f'{settings.ML_IMAGE_SERVICE_BASE_URL}/verify/image'
+    ml_base = settings.ML_IMAGE_SERVICE_BASE_URL
+    ml_url = f'{ml_base}/verify/image'
     filename = content.filename or 'photo.jpg'
     mime = content.mime_type or 'image/jpeg'
 
@@ -77,6 +87,13 @@ def _call_image_ml(content: VerifiableContent, user_email: str) -> tuple[int, di
     )
     resp.raise_for_status()
     ml = resp.json()
+
+    # Make heatmap / boxed-image URLs absolute so the frontend can load them.
+    explainability = ml.get('explainability') or {}
+    if explainability.get('heatmap_url'):
+        explainability['heatmap_url'] = _make_absolute_url(explainability['heatmap_url'], ml_base)
+    if explainability.get('boxed_image_url'):
+        explainability['boxed_image_url'] = _make_absolute_url(explainability['boxed_image_url'], ml_base)
 
     trust_score = int(round(ml.get('trust', {}).get('score', 50)))
     result_summary = {
@@ -90,7 +107,7 @@ def _call_image_ml(content: VerifiableContent, user_email: str) -> tuple[int, di
         'provenance': ml.get('provenance', {}),
         'visible_watermark': ml.get('visible_watermark', {}),
         'forensics': ml.get('forensics', {}),
-        'explainability': ml.get('explainability', {}),
+        'explainability': explainability,
         'trust': ml.get('trust', {}),
         'risk_flags': ml.get('risk_flags', []),
         'limitations': ml.get('limitations', []),
@@ -145,13 +162,41 @@ def _call_mock_ml(content: VerifiableContent, user_email: str) -> tuple[int, dic
 # Verification runner — no Celery, no R2 required
 # ---------------------------------------------------------------------------
 
+def _upload_to_r2(install: ConnectorInstall, content: VerifiableContent) -> 'UploadedFile | None':
+    """Upload file bytes to R2 and return the UploadedFile record, or None on failure."""
+    from apps.verifications.storage_upload import upload_bytes_for_connector_owner
+
+    body: bytes = (
+        content.payload
+        if isinstance(content.payload, bytes)
+        else content.payload.encode('utf-8')
+    )
+    filename = content.filename or 'telegram-file.bin'
+    mime = content.mime_type or 'application/octet-stream'
+
+    logger.info('[R2] uploading %s (%d bytes) for install=%s', filename, len(body), install.id)
+    try:
+        uf = upload_bytes_for_connector_owner(
+            user=install.user,
+            organization=install.organization,
+            data=body,
+            original_filename=filename,
+            mime_type=mime,
+        )
+        logger.info('[R2] upload OK → bucket=%s key=%s uploaded_file=%s', uf.bucket, uf.storage_key, uf.id)
+        return uf
+    except Exception:
+        logger.exception('[R2] upload FAILED for install=%s file=%s', install.id, filename)
+        return None
+
+
 def _run_verification_inline(
     install: ConnectorInstall,
     content: VerifiableContent,
 ) -> Verification:
     """
-    Call the appropriate ML service with the content bytes, create a
-    Verification record, and return it completed.
+    Upload to R2, call the appropriate ML service with the content bytes,
+    create a Verification record, and return it completed.
     """
     modality_map = {
         'text': Verification.Modality.TEXT,
@@ -166,11 +211,17 @@ def _run_verification_inline(
 
     user_email = install.user.email if install.user else ''
 
-    # Create a bare Verification record (no uploaded_file — bytes stay in memory)
+    # Upload to R2 for all file types (text stays in DB only)
+    uploaded_file = None
+    if modality != Verification.Modality.TEXT:
+        uploaded_file = _upload_to_r2(install, content)
+
+    # Create Verification record (uploaded_file may be None if R2 failed — that's OK)
     verification = Verification.objects.create(
         user=install.user if install.user_id else None,
         organization=install.organization if install.organization_id else None,
         modality=modality,
+        uploaded_file=uploaded_file,
         text_input=str(content.payload) if modality == Verification.Modality.TEXT else None,
         status=Verification.Status.ANALYZING,
         started_at=timezone.now(),
@@ -183,6 +234,7 @@ def _run_verification_inline(
     )
 
     try:
+        logger.info('[ML] calling service modality=%s verification=%s', modality, verification.id)
         if modality == Verification.Modality.IMAGE:
             trust_score, result_summary = _call_image_ml(content, user_email)
         elif modality == Verification.Modality.TEXT:
@@ -191,6 +243,7 @@ def _run_verification_inline(
             # Document / audio / video — mock until general ML endpoint exists
             trust_score, result_summary = _call_mock_ml(content, user_email)
 
+        logger.info('[ML] result verification=%s score=%s', verification.id, trust_score)
         verification = complete_verification(
             verification_id=verification.id,
             trust_score=trust_score,
@@ -199,7 +252,7 @@ def _run_verification_inline(
         )
     except Exception as exc:
         fail_verification(str(verification.id), str(exc))
-        logger.exception('inline ML call failed verification=%s', verification.id)
+        logger.exception('[ML] call FAILED verification=%s error=%s', verification.id, exc)
         verification.refresh_from_db()
 
     return verification

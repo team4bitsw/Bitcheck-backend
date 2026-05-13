@@ -531,9 +531,16 @@ class TelegramAdapter(ConnectorAdapter):
                 logger.exception('telegram download failed')
                 yield VerifiableContent(kind='text', payload=f'Could not download file: {e}')
                 return
-            vk = 'image' if tg_kind == 'telegram_sticker' else tg_kind.replace('telegram_', '')
-            if vk not in ('image', 'document', 'audio', 'video'):
-                vk = 'document'
+            _kind_map = {
+                'telegram_photo': 'image',
+                'telegram_sticker': 'image',
+                'telegram_document': 'document',
+                'telegram_video': 'video',
+                'telegram_audio': 'audio',
+                'telegram_voice': 'audio',
+                'telegram_video_note': 'video',
+            }
+            vk = _kind_map.get(tg_kind, 'document')
             yield VerifiableContent(
                 kind=vk,
                 payload=data,
