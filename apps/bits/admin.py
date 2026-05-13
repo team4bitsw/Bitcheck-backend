@@ -40,7 +40,7 @@ class TokenLedgerEntryAdmin(admin.ModelAdmin):
         return False  # Append-only
 
     def has_delete_permission(self, request, obj=None):
-        return False  # Never delete
+        return request.user.is_superuser
 
 
 @admin.register(VirtualAccount)

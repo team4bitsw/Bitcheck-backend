@@ -17,6 +17,7 @@ class VerificationSerializer(serializers.ModelSerializer):
     """Full verification result for the detail view."""
 
     uploaded_file = UploadedFileSerializer(read_only=True)
+    original_filename = serializers.SerializerMethodField()
 
     class Meta:
         model = Verification
@@ -25,22 +26,36 @@ class VerificationSerializer(serializers.ModelSerializer):
             'trust_score', 'verdict', 'result_summary',
             'bits_charged', 'error_message',
             'uploaded_file', 'text_input',
+            'original_filename',
             'created_at', 'started_at', 'completed_at',
         ]
         read_only_fields = fields
 
+    def get_original_filename(self, obj):
+        if obj.result_summary and isinstance(obj.result_summary, dict):
+            return obj.result_summary.get('original_filename', '')
+        return ''
+
 
 class VerificationListSerializer(serializers.ModelSerializer):
     """Compact list view (no result_summary to save bandwidth)."""
+
+    original_filename = serializers.SerializerMethodField()
 
     class Meta:
         model = Verification
         fields = [
             'id', 'modality', 'status',
             'trust_score', 'verdict', 'bits_charged',
+            'original_filename',
             'created_at', 'completed_at',
         ]
         read_only_fields = fields
+
+    def get_original_filename(self, obj):
+        if obj.result_summary and isinstance(obj.result_summary, dict):
+            return obj.result_summary.get('original_filename', '')
+        return ''
 
 
 class VerificationSubmitSerializer(serializers.Serializer):
