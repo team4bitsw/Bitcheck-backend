@@ -577,6 +577,150 @@ const verifyImage = async (file, label = '') => {
 
 ---
 
+### Direct Text Verification
+
+`POST /api/verifications/verify/text/` — **Requires auth. Content-Type: `application/json`.**
+
+Submit text for fraud, AI-generation, manipulation, and source URL analysis. Returns the full AI analysis inline. Costs **1 bit** on success.
+
+> [!TIP]
+> Text verification checks for: AI generation likelihood, fraud signals, manipulation pressure, claim validity, and source URL reputation. All checks run by default — you can disable individual modules to speed up processing.
+
+**Request (JSON):**
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `text` | string | **Yes** | The text to verify (5–8000 characters) |
+| `source_url` | string | No | URL where the text was found, or a link within the text |
+| `context` | string | No | Context hint for the LLM (e.g., `"WhatsApp broadcast"`, `"Email"`) |
+| `label` | string | No | Your tracking identifier |
+| `check_ai_likelihood` | boolean | No | Check if text is AI-generated (default: `true`) |
+| `check_fraud_signals` | boolean | No | Check for fraud/scam signals (default: `true`) |
+| `check_claims` | boolean | No | Check factual claims (default: `true`) |
+| `check_source_url` | boolean | No | Analyze the source URL (default: `true`) |
+
+**cURL example:**
+```bash
+curl -X POST "https://bitscheck-849221325853.europe-west1.run.app/api/verifications/verify/text/" \
+  -H "Cookie: sessionid=YOUR_SESSION_COOKIE" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "text": "URGENT! The Federal Government is giving ₦500,000 grants to all students. Click this link and submit your BVN before midnight.",
+    "source_url": "http://bit.ly/free-grant-now",
+    "context": "WhatsApp broadcast",
+    "label": "suspicious_broadcast_may2026"
+  }'
+```
+
+**Response (200):**
+```json
+{
+  "detail": "Text verification completed.",
+  "verification": {
+    "id": "uuid",
+    "modality": "text",
+    "status": "completed",
+    "trust_score": 15,
+    "verdict": "manipulated",
+    "bits_charged": 1,
+    "result_summary": {
+      "label": "suspicious_broadcast_may2026",
+      "text_length": 128,
+      "text_preview": "URGENT! The Federal Government is giving ₦500,000...",
+      "ml_verification_id": "a1b2c3d4-...",
+      "input": {
+        "text_length": 128,
+        "source_url": "http://bit.ly/free-grant-now",
+        "language": "en",
+        "context": "WhatsApp broadcast"
+      },
+      "trust": {
+        "trust_score": 15,
+        "risk_score": 0.85,
+        "risk_level": "Very High Risk",
+        "decision": "block_or_manual_review",
+        "summary": "This text exhibits multiple high-risk fraud signals..."
+      },
+      "risk_flags": [
+        "Urgency/Pressure tactics detected",
+        "Financial scam keywords found",
+        "Suspicious shortened URL"
+      ],
+      "recommended_actions": [
+        "Do not click the provided link",
+        "Do not share personal information like BVN"
+      ],
+      "ai_likelihood": {
+        "is_ai_generated": true,
+        "confidence": 0.73,
+        "reasoning": "Based on linguistic pattern analysis."
+      },
+      "fraud_signals": { "score": 0.85, "signals_found": [...] },
+      "manipulation_signals": {
+        "urgency_detected": true,
+        "emotional_manipulation": true,
+        "authority_impersonation": true
+      },
+      "source_analysis": {
+        "url_analyzed": "http://bit.ly/free-grant-now",
+        "url_safe": false,
+        "domain_reputation": "suspicious"
+      },
+      "limitations": [
+        "BitCheck text analysis is probabilistic and may produce false positives.",
+        "AI generation detection is not definitive."
+      ]
+    },
+    "error_message": null,
+    "created_at": "2026-05-13T00:30:00Z",
+    "completed_at": "2026-05-13T00:30:02Z"
+  }
+}
+```
+
+**Key fields for the UI:**
+
+| Field | What to display |
+|---|---|
+| `verification.trust_score` | Trust gauge (0–100). Higher = more trustworthy. |
+| `verification.verdict` | Badge: `authentic` / `inconclusive` / `suspicious` / `manipulated` |
+| `result_summary.trust.risk_level` | Risk label (e.g., "Very High Risk") |
+| `result_summary.trust.decision` | `"approve"` / `"review"` / `"block_or_manual_review"` |
+| `result_summary.risk_flags` | Bullet list of red flags |
+| `result_summary.recommended_actions` | Actionable warnings for the user |
+| `result_summary.ai_likelihood.confidence` | AI generation confidence (0–1) |
+| `result_summary.fraud_signals` | Fraud analysis details |
+
+**Error responses:**
+- **400** — Missing/empty text, text too short (<5) or too long (>8000), or ML service error
+- **402** — Insufficient bits: `{ "detail": "Insufficient bits for text verification.", "required": 1, "available": 0 }`
+
+**Frontend implementation (JavaScript):**
+```javascript
+const verifyText = async (text, sourceUrl = '', context = '') => {
+  const response = await fetch('/api/verifications/verify/text/', {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      text,
+      source_url: sourceUrl || undefined,
+      context: context || undefined,
+    }),
+  });
+
+  if (response.status === 402) {
+    const err = await response.json();
+    alert(`Need ${err.required} bit, you have ${err.available}.`);
+    return null;
+  }
+
+  return response.json();
+};
+```
+
+---
+
 ## 4. Dashboards & Token Economy
 
 ### B2C Dashboard Endpoints

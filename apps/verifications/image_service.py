@@ -146,7 +146,7 @@ def verify_image_direct(
             verification=verification,
             enqueued_at=timezone.now(),
             started_at=timezone.now(),
-            ml_endpoint=f'{settings.ML_SERVICE_BASE_URL}/verify/image',
+            ml_endpoint=f'{settings.ML_IMAGE_SERVICE_BASE_URL}/verify/image',
             attempts=1,
         )
 
@@ -184,7 +184,7 @@ def verify_image_direct(
         return verification, ml_result
 
     # --- Real ML service call ---
-    ml_url = f'{settings.ML_SERVICE_BASE_URL}/verify/image'
+    ml_url = f'{settings.ML_IMAGE_SERVICE_BASE_URL}/verify/image'
 
     # ML API requires: user_gmail + file (multipart/form-data)
     files = {

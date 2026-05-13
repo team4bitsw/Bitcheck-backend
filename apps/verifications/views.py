@@ -9,6 +9,7 @@ Endpoints:
   DELETE /api/verifications/<id>/           — soft-delete a single verification
   GET    /api/verifications/costs/          — get verification costs per modality
   POST   /api/verifications/verify/image/   — direct image verification
+  POST   /api/verifications/verify/text/    — direct text verification
 """
 
 from django.conf import settings
@@ -198,3 +199,77 @@ def verify_image_view(request):
         status=status.HTTP_200_OK,
     )
 
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def verify_text_view(request):
+    """
+    Direct text verification — submit text and get AI analysis results.
+
+    Accepts application/json. Forwards text to the ML text service,
+    stores the results, and debits bits on success. Costs 1 bit.
+
+    JSON fields:
+        text*:                Text to verify (5–8000 characters)
+        source_url:           Optional URL where the text was found
+        context:              Optional context hint (e.g., "WhatsApp broadcast")
+        label:                Optional tracking identifier
+        check_ai_likelihood:  true/false (default: true)
+        check_fraud_signals:  true/false (default: true)
+        check_claims:         true/false (default: true)
+        check_source_url:     true/false (default: true)
+    """
+    from .text_service import verify_text_direct
+
+    text_input = request.data.get('text', '').strip()
+    if not text_input:
+        return Response(
+            {'detail': 'Text input is required. Send JSON with a "text" field.'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    # Parse optional fields
+    source_url = request.data.get('source_url', '').strip() or None
+    context = request.data.get('context', '').strip() or None
+    label = request.data.get('label', '').strip() or None
+
+    # Analysis toggles (default all True)
+    check_ai_likelihood = request.data.get('check_ai_likelihood', True)
+    check_fraud_signals = request.data.get('check_fraud_signals', True)
+    check_claims = request.data.get('check_claims', True)
+    check_source_url = request.data.get('check_source_url', True)
+
+    try:
+        verification, ml_result = verify_text_direct(
+            user=request.user,
+            text_input=text_input,
+            source_url=source_url,
+            context=context,
+            label=label,
+            check_ai_likelihood=check_ai_likelihood,
+            check_fraud_signals=check_fraud_signals,
+            check_claims=check_claims,
+            check_source_url=check_source_url,
+        )
+    except InsufficientBitsError as e:
+        return Response(
+            {
+                'detail': 'Insufficient bits for text verification.',
+                'required': e.required,
+                'available': e.available,
+            },
+            status=status.HTTP_402_PAYMENT_REQUIRED,
+        )
+    except VerificationError as e:
+        return Response(
+            {'detail': str(e)},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    return Response(
+        {
+            'detail': 'Text verification completed.',
+            'verification': VerificationSerializer(verification).data,
+        },
+        status=status.HTTP_200_OK,
+    )
