@@ -72,13 +72,16 @@ def _score_emoji(score: int | None) -> str:
 
 
 def format_verification_html(verification: Verification) -> str:
-    """Build a detailed HTML message for Telegram (parse_mode=HTML)."""
-    display_score, verdict_label, score_title, use_model_primary = _primary_display(
+    """Build an HTML message for Telegram (parse_mode=HTML).
+
+    Mirrors the app result card: headline score + verdict only.
+    Full breakdown is always one tap away via the report link.
+    """
+    display_score, verdict_label, score_title, _ = _primary_display(
         verification,
     )
     score_txt = f'{display_score} / 100' if display_score is not None else '—'
     emoji = _score_emoji(display_score)
-    summary = verification.result_summary or {}
 
     lines = [
         f'{emoji} <b>Verification result</b>',
@@ -87,73 +90,11 @@ def format_verification_html(verification: Verification) -> str:
         f'<b>Verdict:</b> {html.escape(verdict_label)}',
     ]
 
-    # Secondary: show composite trust when it differs (helps explain risk metadata vs model headline)
-    if use_model_primary:
-        ts = verification.trust_score
-        if ts is not None and ts != display_score:
-            lines.append(
-                f'<b>Other checks:</b> {html.escape(str(ts))} / 100'
-            )
+    if display_score is not None:
+        lines.append(
+            f'{html.escape(str(display_score))}.0% {html.escape(score_title.lower())} for <b>{html.escape(verdict_label)}</b>.'
+        )
 
-    # --- Model result detail (only when not already the primary headline) ---
-    model = summary.get('model_result', {})
-    if model and not use_model_primary:
-        lbl = str(model.get('label', ''))
-        confidence = model.get('confidence')
-        if lbl:
-            label_txt = 'AI-generated' if 'ai' in lbl.lower() else 'Likely real'
-            conf_txt = (
-                f' ({int(confidence * 100)}% confidence)'
-                if isinstance(confidence, (int, float))
-                else ''
-            )
-            lines.append(f'<b>AI detection:</b> {html.escape(label_txt + conf_txt)}')
-
-    # --- Provenance ---
-    provenance = summary.get('provenance', {})
-    if provenance:
-        c2pa = provenance.get('c2pa_found')
-        if c2pa is True:
-            lines.append('<b>Provenance:</b> ✅ Verified (C2PA found)')
-        elif c2pa is False:
-            lines.append('<b>Provenance:</b> ❌ No verified provenance')
-
-    # --- Metadata signals ---
-    metadata = summary.get('metadata', {})
-    software_flags = metadata.get('software_flags') or []
-    camera_found = metadata.get('camera_metadata_found')
-    meta_notes = []
-    if software_flags:
-        meta_notes.append(f'Edited with {html.escape(", ".join(software_flags[:2]))}')
-    if camera_found is False:
-        meta_notes.append('No camera EXIF data')
-    elif camera_found is True:
-        meta_notes.append('Camera EXIF present')
-    if meta_notes:
-        lines.append(f'<b>Metadata:</b> {" · ".join(meta_notes)}')
-
-    # --- Watermark ---
-    wm = summary.get('visible_watermark', {})
-    if wm.get('visible_watermark_found'):
-        kw = wm.get('detected_keywords') or []
-        wm_txt = 'Watermark detected' + (f': {html.escape(", ".join(kw[:3]))}' if kw else '')
-        lines.append(f'<b>Watermark:</b> {wm_txt}')
-
-    # --- Risk flags ---
-    risk_flags = summary.get('risk_flags') or []
-    if risk_flags:
-        lines.append('')
-        lines.append('<b>Risk signals:</b>')
-        for flag in risk_flags[:4]:
-            lines.append(f'• {html.escape(str(flag))}')
-
-    # --- Forensics ---
-    forensics = summary.get('forensics', {})
-    noise = forensics.get('noise_inconsistency')
-    if noise is not None and noise > 0.4:
-        lines.append(f'• High noise inconsistency ({noise:.2f})')
-
-    # --- Full report link ---
     base = getattr(settings, 'FRONTEND_APP_BASE_URL', 'http://localhost:3000').rstrip('/')
     lines.append('')
     lines.append(
