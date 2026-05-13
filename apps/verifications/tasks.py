@@ -63,8 +63,7 @@ def process_verification(self, verification_id):
         job = verification.job
         job.attempts += 1
         job.started_at = timezone.now()
-        job.ml_endpoint = f'{settings.ML_SERVICE_BASE_URL}/api/v1/verify'
-        job.save(update_fields=['attempts', 'started_at', 'ml_endpoint', 'updated_at'])
+        job.save(update_fields=['attempts', 'started_at', 'updated_at'])
     except VerificationJob.DoesNotExist:
         job = None
 
@@ -91,10 +90,15 @@ def process_verification(self, verification_id):
         logger.info(f'Verification {verification_id} completed via mock. Score: {trust_score}')
         return
 
+    ml_url = f'{settings.ML_SERVICE_BASE_URL}/api/v1/verify'
+    if job:
+        job.ml_endpoint = ml_url
+        job.save(update_fields=['ml_endpoint', 'updated_at'])
+
     try:
         # Call the ML service
         response = requests.post(
-            f'{settings.ML_SERVICE_BASE_URL}/api/v1/verify',
+            ml_url,
             json=payload,
             timeout=120,  # 2 min timeout for heavy modalities like video
         )

@@ -112,9 +112,23 @@ class ConnectorWebhookView(View):
             },
         )
         if not created:
+            # If the event exists but was never queued (e.g. Celery was down when
+            # the first request came in), requeue it so it doesn't get stuck.
+            if event.status == ConnectorEvent.Status.RECEIVED:
+                try:
+                    process_connector_event.delay(str(event.id))
+                except Exception:
+                    logger.exception('Failed to requeue connector event %s', event.id)
             return JsonResponse({'status': 'duplicate'}, status=200)
 
-        process_connector_event.delay(str(event.id))
+        try:
+            process_connector_event.delay(str(event.id))
+        except Exception:
+            logger.exception('Failed to queue connector event %s — will rely on Telegram retry', event.id)
+            # Delete the event so Telegram's next retry creates it fresh and queues it properly.
+            event.delete()
+            return JsonResponse({'detail': 'Queue unavailable, please retry.'}, status=503)
+
         return JsonResponse({'status': 'queued'}, status=200)
 
 
