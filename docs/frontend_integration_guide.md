@@ -201,58 +201,7 @@ Lets an existing individual user create an organization after signup (e.g., they
 
 ---
 
-## 2. The File Upload Flow (Critical Path)
-
-Files are uploaded directly to S3-compatible object storage to bypass Django's memory limits. The architecture is a 3-step process.
-
-> [!WARNING]
-> **The presigned URL endpoint (`POST /api/verifications/upload-url/`) does NOT exist yet.**
-> It is designed but not implemented. Until it ships, file-based verifications (image, video, audio, document) cannot be submitted from the frontend.
-> **Text verifications work today.** File upload support is blocked on S3 credential provisioning.
-
-### Planned Flow (When Implemented)
-
-```
-┌──────────┐    1. Request URL    ┌──────────┐
-│ Frontend │ ──────────────────►  │  Django  │  → creates UploadedFile row
-└────┬─────┘                      └──────────┘    returns presigned PUT URL
-     │
-     │  2. PUT file directly
-     ▼
-┌──────────┐
-│    S3    │
-└──────────┘
-     │
-     │  3. Submit verification with uploaded_file_id
-     ▼
-┌──────────┐
-│  Django  │  → creates Verification + dispatches to ML
-└──────────┘
-```
-
-**Step 1 — Request presigned URL:** `POST /api/verifications/upload-url/` *(not yet implemented)*
-```json
-{
-  "filename": "suspect_video.mp4",
-  "mime_type": "video/mp4",
-  "size_bytes": 524288000
-}
-```
-
-**Step 2 — Direct upload to S3:**
-```typescript
-await fetch(uploadUrl, {
-  method: 'PUT',
-  body: file,
-  headers: { 'Content-Type': file.type },
-});
-```
-
-**Step 3 — Submit verification** (see Section 3 below), passing the `uploaded_file_id`.
-
----
-
-## 3. Core Verification API
+## 2. Core Verification API
 
 ### Get Verification Costs
 
@@ -272,141 +221,6 @@ await fetch(uploadUrl, {
 ```
 
 Use this to display cost badges next to each modality in the UI.
-
-### Submit a Verification
-
-`POST /api/verifications/` — **Requires auth.**
-
-**Text verification request:**
-```json
-{
-  "modality": "text",
-  "text_input": "Breaking: Scientists discover water on the sun!"
-}
-```
-
-**File verification request:**
-```json
-{
-  "modality": "image",
-  "uploaded_file_id": "a1b2c3d4-..."
-}
-```
-
-**Accepted modalities:** `text`, `image`, `video`, `audio`, `document`.
-
-**Response (202 Accepted):**
-```json
-{
-  "detail": "Verification submitted.",
-  "verification": {
-    "id": "59fca6f5-e9ed-4c80-aaae-d7b77e499932",
-    "modality": "text",
-    "status": "queued",
-    "trust_score": null,
-    "verdict": null,
-    "result_summary": {},
-    "bits_charged": 0,
-    "error_message": null,
-    "uploaded_file": null,
-    "text_input": "Breaking: Scientists discover water on the sun!",
-    "created_at": "2026-05-09T20:09:58Z",
-    "started_at": null,
-    "completed_at": null
-  },
-  "cost_bits": 1
-}
-```
-
-> [!IMPORTANT]
-> **Bits are NOT deducted at submission time.** `bits_charged` will be `0` until the ML service completes. The actual wallet debit happens only on successful completion.
-
-**Error — Insufficient Bits (402):**
-```json
-{
-  "detail": "Insufficient bits.",
-  "required": 8,
-  "available": 2
-}
-```
-
-### Async Polling for Results
-
-`GET /api/verifications/<uuid:id>/` — **Requires auth.**
-
-The ML analysis is asynchronous. After submission, poll this endpoint every **3 seconds** until `status` transitions away from `queued` / `analyzing`.
-
-**Status lifecycle:** `queued` → `analyzing` → `completed` | `failed`
-
-**Completed response:**
-```json
-{
-  "verification": {
-    "id": "59fca6f5-...",
-    "modality": "text",
-    "status": "completed",
-    "trust_score": 85,
-    "verdict": "inconclusive",
-    "result_summary": {
-      "signals": [
-        { "key": "factual_consistency", "ok": true, "label": "Claims are consistent" },
-        { "key": "source_credibility", "ok": false, "label": "Source not verified", "weight": 15 }
-      ],
-      "regions": [
-        { "x": 0.12, "y": 0.34, "w": 0.20, "h": 0.15, "score": 0.73 }
-      ],
-      "metadata": {
-        "camera": "iPhone 14 Pro",
-        "captured_at": "2026-05-08T10:22:11Z"
-      }
-    },
-    "bits_charged": 1,
-    "error_message": null,
-    "uploaded_file": null,
-    "text_input": "Breaking: Scientists discover water on the sun!",
-    "created_at": "2026-05-09T20:09:58Z",
-    "started_at": "2026-05-09T20:09:59Z",
-    "completed_at": "2026-05-09T20:10:02Z"
-  }
-}
-```
-
-**Verdict mapping for UI badges:**
-
-| `verdict` | Color | Emoji | Meaning |
-|---|---|---|---|
-| `authentic` | Green | ✅ | Trust score 86-100 |
-| `inconclusive` | Yellow | ⚠️ | Trust score 61-85 |
-| `suspicious` | Orange | 🔶 | Trust score 31-60 |
-| `manipulated` | Red | ❌ | Trust score 0-30 |
-
-**Failed response:**
-```json
-{
-  "verification": {
-    "status": "failed",
-    "trust_score": null,
-    "verdict": null,
-    "bits_charged": 0,
-    "error_message": "ML service is unreachable."
-  }
-}
-```
-
-> No bits are charged on failure.
-
-**Polling example:**
-```typescript
-const pollVerification = async (id: string): Promise<Verification> => {
-  while (true) {
-    const { verification } = await api(`/api/verifications/${id}/`);
-    if (verification.status === 'completed' || verification.status === 'failed') {
-      return verification;
-    }
-    await new Promise((r) => setTimeout(r, 3000));
-  }
-};
-```
 
 ### Verification History
 
@@ -1155,8 +969,10 @@ or
 | `POST` | `/api/keys/<id>/revoke/` | Session | Revoke an API key |
 | `GET` | `/api/verifications/costs/` | Public | Bit costs per modality |
 | `GET` | `/api/verifications/` | Session | List user's verifications (last 50) |
-| `POST` | `/api/verifications/` | Session | Submit a verification |
-| `GET` | `/api/verifications/<id>/` | Session | Get verification detail + results |
+| `DELETE` | `/api/verifications/` | Session | Soft-delete ALL user's verifications |
+| `DELETE` | `/api/verifications/<id>/` | Session | Soft-delete a single verification |
+| `POST` | `/api/verifications/verify/image/` | Session | Direct image verification (2 bits) |
+| `POST` | `/api/verifications/verify/text/` | Session | Direct text verification (1 bit) |
 | `POST` | `/api/webhooks/squad/` | HMAC | Squad payment webhook (server-to-server) |
 | `GET` | `/api/schema/` | Public | OpenAPI 3.0 JSON schema |
 | `GET` | `/api/docs/` | Public | Swagger UI (interactive) |

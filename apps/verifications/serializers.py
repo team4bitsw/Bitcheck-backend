@@ -98,28 +98,3 @@ class VerificationListSerializer(serializers.ModelSerializer):
             return obj.result_summary.get('original_filename', '')
         return ''
 
-
-class VerificationSubmitSerializer(serializers.Serializer):
-    """Submit a new verification (B2C)."""
-
-    modality = serializers.ChoiceField(choices=Verification.Modality.choices)
-    text_input = serializers.CharField(required=False, allow_blank=True)
-    uploaded_file_id = serializers.UUIDField(required=False)
-
-    def validate(self, attrs):
-        modality = attrs.get('modality')
-        text_input = attrs.get('text_input')
-        uploaded_file_id = attrs.get('uploaded_file_id')
-
-        if modality == 'text':
-            if not text_input:
-                raise serializers.ValidationError(
-                    {'text_input': 'Text input is required for text modality.'}
-                )
-        else:
-            if not uploaded_file_id:
-                raise serializers.ValidationError(
-                    {'uploaded_file_id': f'An uploaded file is required for {modality} modality.'}
-                )
-
-        return attrs

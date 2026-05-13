@@ -1,11 +1,9 @@
 """
-Verification views — submission, retrieval, and deletion.
+Verification views — retrieval, deletion, and direct verification.
 
 Endpoints:
-  POST   /api/verifications/                — submit a new verification (B2C)
   GET    /api/verifications/                — list user's verifications (B2C)
   DELETE /api/verifications/                — delete ALL user's verifications
-  GET    /api/verifications/<id>/           — get verification detail
   DELETE /api/verifications/<id>/           — soft-delete a single verification
   GET    /api/verifications/costs/          — get verification costs per modality
   POST   /api/verifications/verify/image/   — direct image verification
@@ -13,6 +11,7 @@ Endpoints:
 """
 
 from django.conf import settings
+from django.utils import timezone
 from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny, IsAuthenticated
@@ -22,10 +21,8 @@ from .models import Verification
 from .serializers import (
     VerificationSerializer,
     VerificationListSerializer,
-    VerificationSubmitSerializer,
 )
 from .services import (
-    submit_b2c_verification,
     InsufficientBitsError,
     VerificationError,
     get_verification_cost,
@@ -44,16 +41,14 @@ def verification_costs_view(request):
     })
 
 
-@api_view(['GET', 'POST', 'DELETE'])
+@api_view(['GET', 'DELETE'])
 @permission_classes([IsAuthenticated])
 def verification_list_view(request):
     """
     GET:    List the current user's verifications.
-    POST:   Submit a new B2C verification.
     DELETE: Soft-delete ALL of the current user's verifications.
     """
     if request.method == 'DELETE':
-        from django.utils import timezone
         count = Verification.objects.filter(
             user=request.user,
             deleted_at__isnull=True,
@@ -63,63 +58,22 @@ def verification_list_view(request):
             'count': count,
         })
 
-    if request.method == 'GET':
-        verifications = Verification.objects.filter(
-            user=request.user,
-            deleted_at__isnull=True,
-        ).order_by('-created_at')[:50]
+    # GET — list
+    verifications = Verification.objects.filter(
+        user=request.user,
+        deleted_at__isnull=True,
+    ).order_by('-created_at')[:50]
 
-        serializer = VerificationListSerializer(verifications, many=True)
-        return Response({'verifications': serializer.data})
-
-    # POST — submit new verification
-    serializer = VerificationSubmitSerializer(data=request.data)
-    serializer.is_valid(raise_exception=True)
-
-    modality = serializer.validated_data['modality']
-    cost = get_verification_cost(modality)
-
-    try:
-        verification = submit_b2c_verification(
-            user=request.user,
-            modality=modality,
-            text_input=serializer.validated_data.get('text_input'),
-            uploaded_file_id=serializer.validated_data.get('uploaded_file_id'),
-        )
-    except InsufficientBitsError as e:
-        return Response(
-            {
-                'detail': 'Insufficient bits.',
-                'required': e.required,
-                'available': e.available,
-            },
-            status=status.HTTP_402_PAYMENT_REQUIRED,
-        )
-    except VerificationError as e:
-        return Response(
-            {'detail': str(e)},
-            status=status.HTTP_400_BAD_REQUEST,
-        )
-
-    return Response(
-        {
-            'detail': 'Verification submitted.',
-            'verification': VerificationSerializer(verification).data,
-            'cost_bits': cost,
-        },
-        status=status.HTTP_202_ACCEPTED,
-    )
+    serializer = VerificationListSerializer(verifications, many=True)
+    return Response({'verifications': serializer.data})
 
 
-@api_view(['GET', 'DELETE'])
+@api_view(['DELETE'])
 @permission_classes([IsAuthenticated])
 def verification_detail_view(request, verification_id):
     """
-    GET:    Get a single verification's full details including results.
     DELETE: Soft-delete a single verification (sets deleted_at timestamp).
     """
-    from django.utils import timezone
-
     try:
         verification = Verification.objects.get(
             pk=verification_id,
@@ -132,17 +86,12 @@ def verification_detail_view(request, verification_id):
             status=status.HTTP_404_NOT_FOUND,
         )
 
-    if request.method == 'DELETE':
-        verification.deleted_at = timezone.now()
-        verification.save(update_fields=['deleted_at'])
-        return Response(
-            {'detail': f'Verification {verification_id} deleted.'},
-            status=status.HTTP_200_OK,
-        )
-
-    return Response({
-        'verification': VerificationSerializer(verification).data,
-    })
+    verification.deleted_at = timezone.now()
+    verification.save(update_fields=['deleted_at'])
+    return Response(
+        {'detail': f'Verification {verification_id} deleted.'},
+        status=status.HTTP_200_OK,
+    )
 
 
 @api_view(['POST'])
