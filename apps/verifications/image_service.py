@@ -1,15 +1,18 @@
 """
-Image verification service — direct upload to ML service.
+Image verification service — direct upload to ML service with hash-based caching.
 
-Handles the image verification flow without requiring S3:
+Flow:
   1. Accept image upload directly from the user
-  2. Compute SHA256 hash
-  3. Forward to ML service's POST /verify/image with user_gmail + file
-  4. Map the ML response to our Verification model
-  5. Debit bits on success
+  2. Validate file type + size
+  3. Pre-flight balance check
+  4. Compute SHA-256 hash (chunked, memory-safe)
+  5. CACHE CHECK: if hash exists in ImageVerificationCache → return cached result
+  6. CACHE MISS: forward to ML service, cache the result on success
+  7. Map the ML response to our Verification model
+  8. Debit bits on success
 
 ML API contract (BitCheck Image Verification API):
-  - Endpoint: POST {ML_SERVICE_BASE_URL}/verify/image
+  - Endpoint: POST {ML_IMAGE_SERVICE_BASE_URL}/verify/image
   - Form fields: user_gmail (required), file (required)
   - Max upload: 12 MB
   - Accepted: JPG, JPEG, PNG, WEBP
@@ -20,9 +23,10 @@ import logging
 import requests
 from django.conf import settings
 from django.db import transaction
+from django.db.models import F
 from django.utils import timezone
 
-from .models import Verification, VerificationJob
+from .models import Verification, VerificationJob, ImageVerificationCache
 from .services import (
     get_verification_cost,
     complete_verification,
@@ -39,6 +43,35 @@ ALLOWED_IMAGE_TYPES = {
     'image/jpeg', 'image/png', 'image/webp', 'image/jpg',
 }
 MAX_IMAGE_SIZE = 12 * 1024 * 1024  # 12 MB (ML service limit)
+HASH_CHUNK_SIZE = 65536  # 64 KB chunks for hashing
+
+
+def compute_file_hash(uploaded_file):
+    """
+    Compute SHA-256 hash of an uploaded file using chunked reads.
+
+    Reads the file in 64 KB chunks to avoid loading the entire file
+    into memory. Resets the file pointer to the beginning after hashing
+    so downstream code can read the file normally.
+
+    Args:
+        uploaded_file: Django UploadedFile (from request.FILES).
+
+    Returns:
+        str: lowercase hex SHA-256 digest (64 characters).
+    """
+    sha256 = hashlib.sha256()
+    uploaded_file.seek(0)
+
+    while True:
+        chunk = uploaded_file.read(HASH_CHUNK_SIZE)
+        if not chunk:
+            break
+        sha256.update(chunk)
+
+    file_hash = sha256.hexdigest()
+    uploaded_file.seek(0)  # Reset for downstream consumers
+    return file_hash
 
 
 def _map_ml_response(ml_result, label, image_file, file_hash):
@@ -75,6 +108,45 @@ def _map_ml_response(ml_result, label, image_file, file_hash):
     return trust_score, result_summary
 
 
+def _check_cache(file_hash):
+    """
+    Look up a file hash in the verification cache.
+
+    Returns (cache_entry, hit) — cache_entry is the ImageVerificationCache
+    object if found, None otherwise. On a hit, increments hit_count atomically.
+    """
+    try:
+        cache_entry = ImageVerificationCache.objects.get(file_hash=file_hash)
+        # Increment hit count atomically
+        ImageVerificationCache.objects.filter(pk=cache_entry.pk).update(
+            hit_count=F('hit_count') + 1,
+        )
+        return cache_entry
+    except ImageVerificationCache.DoesNotExist:
+        return None
+
+
+def _save_to_cache(file_hash, trust_score, result_summary, ml_response_raw, filename):
+    """
+    Save a new ML result to the verification cache.
+
+    If another request already cached this hash (race condition), just
+    ignore the duplicate — the existing entry is equally valid.
+    """
+    try:
+        ImageVerificationCache.objects.create(
+            file_hash=file_hash,
+            trust_score=trust_score,
+            result_summary=result_summary,
+            ml_response_raw=ml_response_raw,
+            original_filename=filename,
+        )
+        print(f'[IMAGE-CACHE] 💾 Cached result for hash {file_hash[:16]}...')
+    except Exception:
+        # Unique constraint violation = another request cached it first. That's fine.
+        print(f'[IMAGE-CACHE] ⚠️ Cache write skipped (already exists) for {file_hash[:16]}...')
+
+
 def verify_image_direct(
     user,
     image_file,
@@ -83,9 +155,9 @@ def verify_image_direct(
     """
     Submit an image for verification directly (no S3 upload needed).
 
-    The ML service requires user_gmail (pulled from user.email) and the image file.
-    All analysis layers (model, forensics, metadata, provenance, explainability)
-    run automatically — no optional flags needed.
+    Uses SHA-256 hash-based caching: if an identical file was previously
+    analyzed, returns the cached ML result instantly without calling the
+    ML service. Still creates a new Verification record and debits bits.
 
     Args:
         user:               The authenticated User.
@@ -119,13 +191,51 @@ def verify_image_direct(
     if not check_balance(wallet.id, cost):
         raise InsufficientBitsError(required=cost, available=wallet.balance_bits)
 
-    # --- Compute SHA256 ---
-    sha256 = hashlib.sha256()
-    image_file.seek(0)
-    for chunk in image_file.chunks():
-        sha256.update(chunk)
-    file_hash = sha256.hexdigest()
-    image_file.seek(0)  # Reset for forwarding
+    # --- Compute SHA-256 (chunked, memory-safe) ---
+    file_hash = compute_file_hash(image_file)
+
+    print(f'[IMAGE-VERIFY] File: {image_file.name}, size={image_file.size}, hash={file_hash[:16]}...')
+    print(f'[IMAGE-VERIFY] Label: {label or "(none)"}, user: {user.email}')
+
+    # --- CACHE CHECK ---
+    cache_entry = _check_cache(file_hash)
+
+    if cache_entry:
+        print(f'[IMAGE-CACHE] ✅ CACHE HIT for hash {file_hash[:16]}... '
+              f'(hits={cache_entry.hit_count + 1}, score={cache_entry.trust_score})')
+
+        # Build result_summary from cache, overriding user-specific fields
+        cached_summary = dict(cache_entry.result_summary)
+        cached_summary['label'] = label or ''
+        cached_summary['original_filename'] = image_file.name
+        cached_summary['_cached'] = True
+        cached_summary['_cache_hit_count'] = cache_entry.hit_count + 1
+
+        # Create Verification record (still needed for user's history + billing)
+        with transaction.atomic():
+            verification = Verification.objects.create(
+                user=user,
+                modality=Verification.Modality.IMAGE,
+                status=Verification.Status.ANALYZING,
+                started_at=timezone.now(),
+                result_summary=cached_summary,
+            )
+
+        # Complete + debit (same as fresh result)
+        verification = complete_verification(
+            verification_id=verification.id,
+            trust_score=cache_entry.trust_score,
+            result_summary=cached_summary,
+            ml_response_raw=cache_entry.ml_response_raw,
+        )
+
+        print(f'[IMAGE-CACHE] ✅ Verification {verification.id} completed from cache: '
+              f'score={cache_entry.trust_score}, verdict={verification.verdict}')
+
+        return verification, cache_entry.ml_response_raw
+
+    # --- CACHE MISS ---
+    print(f'[IMAGE-CACHE] ❌ Cache miss for hash {file_hash[:16]}...')
 
     # --- Create Verification + Job ---
     with transaction.atomic():
@@ -151,8 +261,6 @@ def verify_image_direct(
         )
 
     print(f'[IMAGE-VERIFY] Created verification {verification.id}')
-    print(f'[IMAGE-VERIFY] File: {image_file.name}, size={image_file.size}, hash={file_hash[:16]}...')
-    print(f'[IMAGE-VERIFY] Label: {label or "(none)"}, user: {user.email}')
 
     # --- Mock or Real ML call ---
     if getattr(settings, 'ML_MOCK_RESPONSE', False):
@@ -177,6 +285,9 @@ def verify_image_direct(
             result_summary=result_summary,
             ml_response_raw=ml_result,
         )
+
+        # Cache the mock result too (consistent behavior)
+        _save_to_cache(file_hash, trust_score, result_summary, ml_result, image_file.name)
 
         print(f'[IMAGE-VERIFY] ✅ Mock verification {verification.id} completed: '
               f'score={trust_score}, verdict={verification.verdict}')
@@ -223,6 +334,9 @@ def verify_image_direct(
                 result_summary=result_summary,
                 ml_response_raw=ml_result,
             )
+
+            # Save to cache for future identical files
+            _save_to_cache(file_hash, trust_score, result_summary, ml_result, image_file.name)
 
             print(f'[IMAGE-VERIFY] ✅ Verification {verification.id} completed: '
                   f'score={trust_score}, verdict={verification.verdict}')

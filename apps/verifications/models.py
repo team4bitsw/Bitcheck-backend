@@ -342,3 +342,62 @@ class VerificationJob(models.Model):
 
     def __str__(self):
         return f'Job for {self.verification_id} (attempts={self.attempts})'
+
+
+# ============================================================
+# ImageVerificationCache
+# ============================================================
+
+class ImageVerificationCache(models.Model):
+    """
+    Cache for image verification ML results.
+
+    Maps a SHA-256 file hash to a previously-computed ML result so
+    identical files skip the ML call entirely. The cache stores the
+    full ML response and mapped trust score.
+
+    Cache entries are keyed by file_hash (unique, indexed). A hit
+    returns the stored result immediately; a miss triggers the ML
+    pipeline and writes a new cache entry on success.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    file_hash = models.CharField(
+        max_length=64,
+        unique=True,
+        db_index=True,
+        help_text='SHA-256 hex digest of the file contents.',
+    )
+    trust_score = models.IntegerField(
+        help_text='Cached trust score (0–100).',
+    )
+    result_summary = models.JSONField(
+        default=dict,
+        help_text='Cached mapped result_summary (same schema as Verification.result_summary).',
+    )
+    ml_response_raw = models.JSONField(
+        default=dict,
+        help_text='Full ML service response payload.',
+    )
+    original_filename = models.CharField(
+        max_length=255,
+        blank=True,
+        default='',
+        help_text='Filename of the first file that created this cache entry.',
+    )
+    hit_count = models.PositiveIntegerField(
+        default=0,
+        help_text='Number of times this cache entry has been reused.',
+    )
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'image_verification_cache'
+        verbose_name = 'image verification cache entry'
+        verbose_name_plural = 'image verification cache entries'
+
+    def __str__(self):
+        return f'Cache {self.file_hash[:12]}... (score={self.trust_score}, hits={self.hit_count})'
+

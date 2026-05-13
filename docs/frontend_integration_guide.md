@@ -255,6 +255,9 @@ Uploads an image directly and runs it through the BitCheck ML pipeline. Returns 
 > [!TIP]
 > This is the simplest way to verify images. The backend sends `user_gmail` (from your session) + the file to the ML service automatically. All analysis layers (model, forensics, metadata, provenance, explainability) run by default.
 
+> [!NOTE]
+> **Hash-based caching:** The backend computes a SHA-256 hash of every uploaded file. If an identical file was previously analyzed, the cached ML result is returned instantly (no ML call). The response will include `result_summary._cached = true` and `result_summary._cache_hit_count`. Bits are still charged on cache hits — caching optimizes speed, not cost.
+
 **Request (multipart/form-data):**
 
 | Field | Type | Required | Description |

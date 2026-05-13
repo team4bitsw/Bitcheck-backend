@@ -3,7 +3,7 @@ Verifications admin.
 """
 
 from django.contrib import admin
-from .models import UploadedFile, Verification, VerificationJob
+from .models import UploadedFile, Verification, VerificationJob, ImageVerificationCache
 
 
 @admin.register(UploadedFile)
@@ -29,3 +29,15 @@ class VerificationJobAdmin(admin.ModelAdmin):
     search_fields = ('celery_task_id', 'verification__id')
     readonly_fields = ('id', 'created_at', 'updated_at')
     ordering = ('-created_at',)
+
+
+@admin.register(ImageVerificationCache)
+class ImageVerificationCacheAdmin(admin.ModelAdmin):
+    list_display = ('file_hash_short', 'trust_score', 'original_filename', 'hit_count', 'created_at', 'updated_at')
+    search_fields = ('file_hash', 'original_filename')
+    readonly_fields = ('id', 'file_hash', 'trust_score', 'result_summary', 'ml_response_raw', 'hit_count', 'created_at', 'updated_at')
+    ordering = ('-created_at',)
+
+    def file_hash_short(self, obj):
+        return f'{obj.file_hash[:16]}...'
+    file_hash_short.short_description = 'File Hash'
