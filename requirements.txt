@@ -16,8 +16,11 @@ Django==6.0.5
 django-cors-headers==4.9.0
 djangorestframework==3.17.1
 drf-spectacular==0.29.0
+google-api-python-client==2.169.0
 google-auth==2.52.0
+google-auth-httplib2==0.2.0
 google-auth-oauthlib==1.4.0
+httplib2==0.22.0
 gunicorn==26.0.0
 idna==3.13
 inflection==0.5.1

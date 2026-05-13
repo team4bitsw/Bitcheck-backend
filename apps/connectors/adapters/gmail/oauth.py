@@ -25,9 +25,12 @@ GMAIL_INSTALL_SCOPES = [
     'https://www.googleapis.com/auth/userinfo.email',
     # Google often grants this with openid/email; omitting it makes oauthlib reject the token response.
     'https://www.googleapis.com/auth/userinfo.profile',
+    # Read emails and attachments for verification
     'https://www.googleapis.com/auth/gmail.readonly',
-    'https://www.googleapis.com/auth/gmail.addons.execute',
-    'https://www.googleapis.com/auth/gmail.addons.current.message.readonly',
+    # Modify labels (mark processed messages)
+    'https://www.googleapis.com/auth/gmail.modify',
+    # Send reply emails with verification results
+    'https://www.googleapis.com/auth/gmail.send',
 ]
 
 

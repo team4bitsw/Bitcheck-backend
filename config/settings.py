@@ -295,6 +295,12 @@ CONNECTORS_PUBLIC_BASE_URL = config(
 
 # Deep links in outbound emails / Telegram (consumer app origin)
 FRONTEND_APP_BASE_URL = config('FRONTEND_APP_BASE_URL', default='http://localhost:3000').rstrip('/')
+
+# Gmail Pub/Sub push configuration
+GMAIL_PUBSUB_TOPIC = config('GMAIL_PUBSUB_TOPIC', default='')
+GMAIL_PUBSUB_SUBSCRIPTION = config('GMAIL_PUBSUB_SUBSCRIPTION', default='')
+GMAIL_PUBSUB_PUSH_TOKEN = config('GMAIL_PUBSUB_PUSH_TOKEN', default='')
+
 CONNECTORS_OAUTH_STATE_SECRET = config(
     'CONNECTORS_OAUTH_STATE_SECRET',
     default=SECRET_KEY,
