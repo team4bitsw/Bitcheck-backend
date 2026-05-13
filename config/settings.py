@@ -254,6 +254,9 @@ CELERY_TIMEZONE = 'UTC'
 CELERY_TASK_TRACK_STARTED = True
 CELERY_TASK_TIME_LIMIT = 300  # 5 min hard limit
 CELERY_TASK_SOFT_TIME_LIMIT = 240  # 4 min soft limit
+# Upstash only supports DB 0 — disable result tracking to prevent DB-1 pub/sub errors.
+CELERY_TASK_IGNORE_RESULT = True
+CELERY_RESULT_BACKEND_TRANSPORT_OPTIONS = {'visibility_timeout': 3600}
 CELERY_BEAT_SCHEDULE = {
     'subscription-rollover': {
         'task': 'apps.billing.tasks.process_subscription_rollovers',

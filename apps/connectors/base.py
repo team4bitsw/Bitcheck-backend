@@ -106,3 +106,7 @@ class ConnectorAdapter(ABC):
     def refresh_credentials(self, install: 'ConnectorInstall') -> None:
         """Default no-op; OAuth adapters override."""
         return None
+
+    def acknowledge_event(self, ctx: InstallContext, event: ParsedEvent) -> None:
+        """Send an immediate 'we received your content' reply. Default no-op."""
+        return None

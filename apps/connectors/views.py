@@ -129,6 +129,12 @@ class ConnectorWebhookView(View):
             event.delete()
             return JsonResponse({'detail': 'Queue unavailable, please retry.'}, status=503)
 
+        # Send immediate acknowledgment so the user knows we got their message.
+        try:
+            adapter.acknowledge_event(ctx, parsed)
+        except Exception:
+            logger.exception('acknowledge_event failed for event %s', event.id)
+
         return JsonResponse({'status': 'queued'}, status=200)
 
 

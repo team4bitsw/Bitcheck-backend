@@ -578,6 +578,26 @@ class TelegramAdapter(ConnectorAdapter):
         if txt:
             yield VerifiableContent(kind='text', payload=txt)
 
+    def acknowledge_event(self, ctx: InstallContext, event: ParsedEvent) -> None:
+        raw = event.raw_payload or {}
+        tok_param = raw.get('token_param', 'shared')
+        token = tg_bot.shared_bot_token() if tok_param == 'shared' else (ctx.credentials or {}).get('bot_token')
+        if not token:
+            return
+        chat_id = raw.get('chat_id')
+        msg_id = raw.get('message_id')
+        if not chat_id:
+            return
+        try:
+            tg_bot.send_message(
+                str(token),
+                chat_id=int(chat_id),
+                text='Checking this for you, hang on a moment...',
+                reply_to_message_id=msg_id,
+            )
+        except Exception:
+            logger.exception('telegram acknowledge failed')
+
     def send_result(
         self,
         ctx: InstallContext,
