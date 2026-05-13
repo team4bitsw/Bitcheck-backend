@@ -27,6 +27,8 @@ COPY . .
 RUN SECRET_KEY=__build_only__ \
     ALLOWED_HOSTS=* \
     DEBUG=True \
+    ML_IMAGE_SERVICE_BASE_URL=https://jaykay73-bitcheck-image.hf.space \
+    ML_TEXT_SERVICE_BASE_URL=https://jaykay73-bitcheck-text.hf.space \
     python manage.py collectstatic --noinput
 
 RUN useradd --create-home --uid 10001 appuser \
