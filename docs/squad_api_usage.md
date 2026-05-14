@@ -1,328 +1,491 @@
 # Squad API Usage Reference
 
-> Complete reference of every Squad payment gateway endpoint used by the Bitcheck backend, why it's used, where it's called from, and how it fits into the system.
+> Complete reference of every Squad payment gateway API endpoint used by the Bitcheck backend — includes the official Squad API specifications, why each is used, and how it integrates into our system.
 
-**Base URL (sandbox):** `https://sandbox-api-d.squadco.com`
-**Base URL (production):** `https://api-d.squadco.com`
-**Auth header (all calls):** `Authorization: Bearer {SQUAD_SECRET_KEY}`
+**Base URLs:**
+- **Sandbox:** `https://sandbox-api-d.squadco.com`
+- **Production:** `https://api-d.squadco.com`
+
+**Authentication:** All requests require `Authorization: Bearer {SQUAD_SECRET_KEY}` header.
 
 ---
 
-## Table of Contents
+## APIs Used
 
-1. [Initiate Payment](#1-initiate-payment)
-2. [Charge Card (Recurring)](#2-charge-card-recurring)
-3. [Cancel Recurring Authorization](#3-cancel-recurring-authorization)
-4. [Create Business Virtual Account](#4-create-business-virtual-account)
-5. [Simulate Payment (Sandbox Only)](#5-simulate-payment-sandbox-only)
-6. [Webhook Reception](#6-webhook-reception)
-7. [Environment Variables](#7-environment-variables)
+| # | Squad API Endpoint | Method | What It Does |
+|---|---|---|---|
+| 1 | `/transaction/initiate` | POST | Initiate a payment and get a checkout URL |
+| 2 | `/transaction/charge_card` | POST | Charge a tokenized card (recurring billing) |
+| 3 | `/transaction/cancel/recurring` | PATCH | Cancel a card tokenization authorization |
+| 4 | `/virtual-account/business` | POST | Create a dedicated virtual account for a business |
+| 5 | `/virtual-account/simulate/payment` | POST | Simulate a bank transfer to a VA (sandbox only) |
 
 ---
 
 ## 1. Initiate Payment
 
-**Squad endpoint:** `POST /transaction/initiate`
+`POST https://sandbox-api-d.squadco.com/transaction/initiate`
 
-**Purpose:** Start a card-tokenization checkout for B2C Pro plan upgrades. The user is redirected to Squad's hosted checkout page where they enter their card details. On successful payment, Squad tokenizes the card and sends a webhook with the `token_id` for future recurring charges.
+This endpoint initiates a transaction and returns a checkout URL. When visited, this URL displays Squad's payment modal where the customer enters their card details.
 
-**Why we use it:** This is the entry point for our subscription billing. We need Squad to collect the initial payment AND tokenize the card so we can auto-renew subscriptions monthly without the user re-entering card details.
+**Why we use it:** To start the Pro subscription upgrade flow. We pass `is_recurring: true` so that Squad tokenizes the card on successful payment, giving us a `token_id` we can use for future automatic charges without the user re-entering card details.
 
-**Called from:** `apps/billing/services.py` → `initiate_pro_checkout()`
+**Where it's called:** `apps/billing/services.py` → `initiate_pro_checkout()`
 
-**Request payload:**
+### Parameters
+
+**Headers:**
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `Authorization` | String | Yes | API secret key as Bearer token |
+
+**Body:**
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `email` | String | Yes | Customer's email address |
+| `amount` | Integer | Yes | Amount to charge in lowest currency unit (kobo). 10000 = NGN 100 |
+| `initiate_type` | String | Yes | Must be `"inline"` — returns a checkout URL |
+| `currency` | String | Yes | `"NGN"` or `"USD"` |
+| `transaction_ref` | String | No | Unique merchant reference. Auto-generated if omitted |
+| `customer_name` | String | No | Name of the customer |
+| `callback_url` | String | No | URL to redirect customer after payment |
+| `payment_channels` | Array | No | Restrict channels: `["card", "bank", "ussd", "transfer"]` |
+| `metadata` | Object | No | Any additional data to attach to the transaction |
+| `pass_charge` | Boolean | No | When `true`, charges are passed to customer. Default: `false` |
+| `is_recurring` | Boolean | No | When `true`, tokenizes the card and returns `token_id` in webhook |
+
+### Sample Request
+
 ```json
 {
-  "email": "user@example.com",
-  "amount": 200000,
-  "currency": "NGN",
-  "initiate_type": "inline",
-  "transaction_ref": "bck_pro_a1b2c3d4e5f6g7h8",
-  "customer_name": "John Doe",
-  "callback_url": "https://app.bitcheck.ai/billing/success",
-  "payment_channels": ["card"],
-  "is_recurring": true,
-  "metadata": {
-    "user_id": "uuid",
-    "plan_code": "pro",
-    "purpose": "pro_upgrade"
-  }
+    "amount": 200000,
+    "email": "user@example.com",
+    "currency": "NGN",
+    "initiate_type": "inline",
+    "transaction_ref": "bck_pro_a1b2c3d4e5f6g7h8",
+    "callback_url": "https://app.bitcheck.ai/billing/success",
+    "payment_channels": ["card"],
+    "is_recurring": true
 }
 ```
 
-**Key fields:**
-| Field | Value | Why |
-|---|---|---|
-| `is_recurring` | `true` | Tells Squad to tokenize the card — returns `token_id` in webhook |
-| `initiate_type` | `inline` | Returns a `checkout_url` for Squad's hosted payment modal |
-| `payment_channels` | `["card"]` | Restrict to card-only (no bank transfer for subscriptions) |
-| `amount` | kobo (NGN * 100) | Squad uses lowest currency unit (e.g., 200000 = N2,000) |
-| `transaction_ref` | `bck_pro_{uuid}` | Our unique reference for idempotent processing |
+### Responses
 
-**Response (success):**
+**200 OK — Success:**
+
 ```json
 {
-  "status": 200,
-  "data": {
-    "checkout_url": "https://checkout.squadco.com/pay/..."
-  }
+    "status": 200,
+    "message": "success",
+    "data": {
+        "auth_url": null,
+        "access_token": null,
+        "merchant_info": {
+            "merchant_response": null,
+            "merchant_name": null,
+            "merchant_logo": null,
+            "merchant_id": "SBN1EBZEQ8"
+        },
+        "currency": "NGN",
+        "recurring": {
+            "frequency": null,
+            "duration": null,
+            "type": 0,
+            "plan_code": null,
+            "customer_name": null
+        },
+        "is_recurring": true,
+        "callback_url": "https://app.bitcheck.ai/billing/success",
+        "transaction_ref": "bck_pro_a1b2c3d4e5f6g7h8",
+        "transaction_amount": 200000,
+        "authorized_channels": ["card"],
+        "checkout_url": "https://sandbox-pay.squadco.com/bck_pro_a1b2c3d4e5f6g7h8"
+    }
 }
 ```
 
-**Flow after this call:**
-1. Frontend redirects user to `checkout_url`
-2. User enters card details on Squad's hosted page
-3. Squad processes payment and sends `charge_successful` webhook
-4. Our webhook handler activates the subscription and stores the `token_id`
+**401 Unauthorized:**
 
-**Dev mock:** Set `SQUAD_CHECKOUT_DEV_MOCK=True` + `DEBUG=True` to skip the Squad API and return a mock checkout URL for local testing.
+```json
+{
+    "status": 401,
+    "message": "Initiate transaction Unauthorized",
+    "data": null
+}
+```
+
+**400 Bad Request:**
+
+```json
+{
+    "status": 400,
+    "success": false,
+    "message": "email is required",
+    "data": {}
+}
+```
+
+### Webhook Response (After Successful Tokenized Payment)
+
+When the user completes payment on the checkout page, Squad sends a webhook to our endpoint with the card token:
+
+```json
+{
+    "Event": "charge_successful",
+    "TransactionRef": "SQTECH6389058547434300003",
+    "Body": {
+        "amount": 200000,
+        "transaction_ref": "bck_pro_a1b2c3d4e5f6g7h8",
+        "gateway_ref": "SQTECH6389058547434300003_1_6_1",
+        "transaction_status": "Success",
+        "email": "user@example.com",
+        "merchant_id": "SBSJ3KMH",
+        "currency": "NGN",
+        "transaction_type": "Card",
+        "merchant_amount": 198000,
+        "created_at": "2026-05-12T10:51:14.368",
+        "meta": {},
+        "payment_information": {
+            "payment_type": "card",
+            "pan": "509983******3911|1027",
+            "card_type": "mastercard",
+            "token_id": "AUTH_lBlGESHDLMX_60049043"
+        },
+        "is_recurring": true
+    }
+}
+```
+
+The `token_id` (`AUTH_lBlGESHDLMX_60049043`) is what we store for future recurring charges.
 
 ---
 
 ## 2. Charge Card (Recurring)
 
-**Squad endpoint:** `POST /transaction/charge_card`
+`POST https://sandbox-api-d.squadco.com/transaction/charge_card`
 
-**Purpose:** Charge a previously tokenized card for subscription renewals. This is called automatically by our Celery-based billing cycle to renew Pro subscriptions without user interaction.
+This endpoint debits a previously tokenized card using the `token_id` received from the initial payment webhook. No checkout page is needed — it's a server-to-server charge.
 
-**Why we use it:** After the initial payment tokenizes the card, we need a way to charge it again each billing cycle. This endpoint lets us do server-to-server charges using the stored `token_id` — no checkout page needed.
+**Why we use it:** To auto-renew Pro subscriptions each billing cycle without the user re-entering card details.
 
-**Called from:** `apps/billing/services.py` → `charge_card_recurring()`
+**Where it's called:** `apps/billing/services.py` → `charge_card_recurring()`
 
-**Request payload:**
+> For recurring payment testing on Sandbox, use the test card: `5200000000000007`
+
+### Parameters
+
+**Body:**
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `amount` | Integer | Yes | Amount to charge in lowest currency unit (kobo) |
+| `token_id` | String | Yes | Tokenization code returned via webhook from initial payment |
+| `transaction_ref` | String | No | Unique transaction reference |
+
+### Sample Request
+
 ```json
 {
-  "amount": 200000,
-  "token_id": "AUTH_lBlGESHDLMX_60049043",
-  "transaction_ref": "bck_renew_a1b2c3d4e5f6g7h8"
-}
-```
-
-**Key fields:**
-| Field | Value | Why |
-|---|---|---|
-| `token_id` | `AUTH_...` | The card token received from the initial payment webhook |
-| `amount` | kobo | Must match the plan's recurring charge |
-| `transaction_ref` | `bck_renew_{uuid}` | Unique per charge for idempotency |
-
-**Response (success):**
-```json
-{
-  "status": 200,
-  "data": {
-    "transaction_ref": "bck_renew_...",
     "amount": 200000,
-    "status": "success"
-  }
+    "token_id": "AUTH_lBlGESHDLMX_60049043",
+    "transaction_ref": "bck_renew_a1b2c3d4e5f6g7h8"
 }
 ```
 
-**When it's called:**
-- Celery beat task runs on the subscription renewal schedule
-- Task checks if subscription is active + has a stored card token
-- Calls this endpoint to charge the card
-- On success: extends subscription period + grants new bit allocation
+### Responses
+
+**200 OK — Success:**
+
+```json
+{
+    "status": 200,
+    "success": true,
+    "message": "Success",
+    "data": {
+        "transaction_amount": 200000,
+        "transaction_ref": "bck_renew_a1b2c3d4e5f6g7h8",
+        "email": "user@example.com",
+        "transaction_status": "success",
+        "transaction_currency_id": "NGN",
+        "created_at": "2026-05-12T10:51:14.368",
+        "transaction_type": "Card",
+        "merchant_name": "Bitcheck AI",
+        "gateway_transaction_ref": "SQTECH638905854743430003"
+    }
+}
+```
+
+**400 Bad Request:**
+
+```json
+{
+    "status": 400,
+    "success": false,
+    "message": "amount cannot be < 0",
+    "data": {}
+}
+```
 
 ---
 
 ## 3. Cancel Recurring Authorization
 
-**Squad endpoint:** `PATCH /transaction/cancel/recurring`
+`PATCH https://sandbox-api-d.squadco.com/transaction/cancel/recurring`
 
-**Purpose:** Revoke our authorization to charge a user's tokenized card. Called when a user cancels their Pro subscription, ensuring we can no longer charge their card.
+This endpoint cancels active card token authorizations, revoking the ability to charge the card in the future.
 
-**Why we use it:** When a user cancels, we must tell Squad to invalidate the card token. This is both a security requirement and a user trust measure — we should not retain the ability to charge a card after cancellation.
+**Why we use it:** When a user cancels their Pro subscription, we revoke the card token so we can no longer charge their card.
 
-**Called from:** `apps/billing/services.py` → `cancel_card_token()`
+**Where it's called:** `apps/billing/services.py` → `cancel_card_token()`
 
-**Request payload:**
+### Parameters
+
+**Body:**
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `auth_code` | Array | Yes | Array of token IDs to cancel (from the initial tokenized payment webhook) |
+
+### Sample Request
+
 ```json
 {
-  "auth_code": ["AUTH_lBlGESHDLMX_60049043"]
+    "auth_code": [
+        "AUTH_lBlGESHDLMX_60049043"
+    ]
 }
 ```
 
-**Key fields:**
-| Field | Value | Why |
-|---|---|---|
-| `auth_code` | array of token IDs | Squad accepts batch cancellation; we send one at a time |
+### Responses
 
-**Response (success):**
+**200 OK — Success:**
+
 ```json
 {
-  "status": 200,
-  "message": "Authorization cancelled successfully"
+    "status": 200,
+    "success": true,
+    "message": "Success",
+    "data": {
+        "auth_code": [
+            "AUTH_lBlGESHDLMX_60049043"
+        ]
+    }
 }
 ```
 
-**When it's called:**
-- User hits `POST /api/billing/subscription/cancel/`
-- Backend cancels the subscription (sets `cancel_at_period_end = True`)
-- Calls this endpoint to revoke the card token with Squad
-- Returns `True`/`False` — failure is logged but doesn't block the cancellation
+**400 Bad Request:**
+
+```json
+{
+    "status": 400,
+    "success": false,
+    "message": "Recurring Payment was not cancelled",
+    "data": {}
+}
+```
 
 ---
 
 ## 4. Create Business Virtual Account
 
-**Squad endpoint:** `POST /virtual-account/business`
+`POST https://sandbox-api-d.squadco.com/virtual-account/business`
 
-**Purpose:** Provision a dedicated virtual bank account number for a B2B organization. When anyone sends a bank transfer to this account number, Squad forwards a webhook to our backend, which converts the NGN deposit to bits and credits the organization's wallet.
+This endpoint creates a dedicated virtual bank account for a business. The B2B model is designed for merchant-to-merchant use cases where businesses (not individual consumers) need a permanent account number for receiving bank transfers.
 
-**Why we use it:** Our B2B clients need a way to top up their bit wallets via bank transfer (not card). Virtual accounts give each organization a permanent, dedicated account number that maps directly to their Bitcheck wallet.
+**Why we use it:** Our B2B organizations need a dedicated account number to top up their bit wallets via bank transfer. When funds are sent to the virtual account, Squad sends a webhook and we convert the deposit to bits.
 
-**Called from:** `apps/bits/va_services.py` → `provision_virtual_account()`
+**Where it's called:** `apps/bits/va_services.py` → `provision_virtual_account()`
 
-**Request payload:**
+> You must request profiling from Squad before you can create business virtual accounts. Contact Squad support for sandbox access.
+
+### Parameters
+
+**Body:**
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `bvn` | String | Yes | Bank Verification Number |
+| `business_name` | String | Yes | Name of the business/customer |
+| `customer_identifier` | String | Yes | Alphanumeric string to identify the customer/business in your system, tied to the virtual account |
+| `mobile_num` | String | Yes | Customer's phone number (max 11 digits). Example: `08012345678` |
+| `beneficiary_account` | String | No | 10-digit GTBank account where funds are settled. If not provided, funds go to your Squad wallet (T+1 settlement) |
+
+### Sample Request
+
 ```json
 {
-  "customer_identifier": "acme-corp",
-  "business_name": "Acme Corp Ltd",
-  "mobile_num": "08012345678",
-  "bvn": "22110011001",
-  "beneficiary_account": "4920299492"
+    "customer_identifier": "acme-corp",
+    "business_name": "Acme Corp Limited",
+    "mobile_num": "08139011943",
+    "bvn": "22110011001",
+    "beneficiary_account": "4920299492"
 }
 ```
 
-**Key fields:**
-| Field | Value | Why |
-|---|---|---|
-| `customer_identifier` | org slug | Links the VA to our organization record |
-| `business_name` | org name (min 2 words) | Squad requires multi-word names; we append "Ltd" if needed |
-| `mobile_num` | from frontend | Required by Squad for KYC |
-| `bvn` | from frontend | Bank Verification Number — required by Squad for VA provisioning |
-| `beneficiary_account` | from env var | Squad sandbox requires this; set via `SQUAD_BENEFICIARY_ACCOUNT` |
+### Responses
 
-**Response (success):**
+**200 OK — Success:**
+
 ```json
 {
-  "success": true,
-  "message": "Success",
-  "data": {
-    "virtual_account_number": "6742152514",
-    "bank_code": "058",
-    "customer_identifier": "acme-corp"
-  }
+    "status": 200,
+    "success": true,
+    "message": "Success",
+    "data": {
+        "first_name": "Acme-Corp",
+        "last_name": "Limited",
+        "bank_code": "058",
+        "virtual_account_number": "2474681469",
+        "beneficiary_account": "4920299492",
+        "customer_identifier": "acme-corp",
+        "created_at": "2026-05-10T13:18:21.287Z",
+        "updated_at": "2026-05-10T13:18:21.287Z"
+    }
 }
 ```
 
-**After provisioning:**
-- The virtual account number and bank name are stored in our `VirtualAccount` model
-- The frontend displays the account details for the org admin to share with their finance team
-- Any transfer to this account triggers a Squad webhook → bit credit
+**400 Bad Request:**
 
-**Common errors:**
-| Status | Cause | Fix |
-|---|---|---|
-| 400 | "Beneficiary account is required" | Set `SQUAD_BENEFICIARY_ACCOUNT` in `.env` |
-| 403 | Merchant not profiled for B2B | Contact Squad support to enable virtual account access for your sandbox merchant |
+```json
+{
+    "status": 400,
+    "success": false,
+    "message": "\"customer_identifier\" is required",
+    "data": {}
+}
+```
+
+**401 Unauthorized:**
+
+```json
+{
+    "success": false,
+    "message": "",
+    "data": {}
+}
+```
+
+**403 Forbidden (not profiled for B2B):**
+
+```json
+{
+    "success": false,
+    "message": "Merchant authentication failed",
+    "data": {}
+}
+```
+
+**424 Failed Dependency (wrong account number):**
+
+```json
+{
+    "success": false,
+    "message": "Validation Failure No record found for Account number- 1237398433",
+    "data": {}
+}
+```
 
 ---
 
 ## 5. Simulate Payment (Sandbox Only)
 
-**Squad endpoint:** `POST /virtual-account/simulate/payment`
+`POST https://sandbox-api-d.squadco.com/virtual-account/simulate/payment`
 
-**Purpose:** Simulate an inbound bank transfer to a virtual account in the sandbox environment. This triggers Squad to send a webhook as if a real bank transfer occurred, allowing end-to-end testing of the VA top-up flow.
+This endpoint simulates a bank transfer into a virtual account in the sandbox environment. It triggers Squad to send a webhook notification as if a real bank transfer occurred.
 
-**Why we use it:** In sandbox mode, no real bank transfers can be made. This endpoint lets us test the complete flow: simulate payment → Squad sends webhook → our backend credits bits to the org wallet.
+**Why we use it:** In sandbox mode, no real bank transfers can happen. This lets us test the end-to-end flow: simulate deposit → Squad fires webhook → our backend credits bits to the org wallet.
 
-**Called from:** `apps/bits/views.py` → `simulate_payment_view()`
+**Where it's called:** `apps/bits/views.py` → `simulate_payment_view()`
 
-**Our API wrapper:** `POST /api/bits/virtual-account/simulate-payment/`
+### Parameters
 
-**Request payload (to Squad):**
-```json
-{
-  "virtual_account_number": "6742152514",
-  "amount": "20000"
-}
-```
+**Body:**
 
-**Key fields:**
-| Field | Value | Why |
-|---|---|---|
-| `virtual_account_number` | from our VA record | Auto-filled from the org's provisioned VA |
-| `amount` | naira string | Amount to simulate (e.g., "20000" = N20,000) |
-
-**Response (success):**
-```json
-{
-  "success": true,
-  "message": "Success",
-  "data": {}
-}
-```
-
-**What happens after:**
-1. Squad sends a webhook to our configured webhook URL (`/api/webhooks/squad/`)
-2. Webhook payload contains `virtual_account_number`, `principal_amount`, `customer_identifier`
-3. Our backend looks up the org by `customer_identifier`, converts NGN to bits, and credits the wallet
-
-**Safety:** This endpoint is blocked in production — it only works when `SQUAD_BASE_URL` contains "sandbox".
-
----
-
-## 6. Webhook Reception
-
-**Our endpoint:** `POST /api/webhooks/squad/`
-
-**Purpose:** Receive and process payment notifications from Squad. This is not a Squad API we call — it's a Squad API that calls us. Configured in the Squad dashboard under webhook settings.
-
-**Why we use it:** Squad communicates payment results (successful charges, failed payments, VA deposits) via webhooks. We must receive and process these to activate subscriptions, credit wallets, and track transactions.
-
-**Called by:** Squad's servers (server-to-server)
-
-**Webhook types we handle:**
-
-| Event | Source | What we do |
-|---|---|---|
-| Card payment success | `POST /transaction/initiate` checkout | Activate Pro subscription, store card `token_id`, grant bits |
-| Recurring charge success | `POST /transaction/charge_card` | Extend subscription period, grant new bit cycle |
-| VA deposit received | Bank transfer to virtual account | Convert NGN to bits, credit org wallet |
-
-**Signature verification:**
-- **Card webhooks:** HMAC-SHA512 of the raw request body, compared against `X-Squad-Encrypted-Body` header
-- **VA webhooks:** HMAC-SHA512 of the raw body, compared against the `encrypted_body` field inside the JSON payload
-- Both use `SQUAD_WEBHOOK_SECRET` as the HMAC key
-
-**Idempotency:** We track `transaction_reference` to prevent duplicate processing. If the same reference arrives twice, the second is acknowledged (200 OK) but not processed.
-
-**Handler location:** `apps/webhooks/views.py` → `squad_webhook_view()`
-**Business logic:** `apps/webhooks/services.py` → `ingest_webhook_event()`
-
----
-
-## 7. Environment Variables
-
-All Squad-related configuration is loaded from environment variables:
-
-| Variable | Required | Description | Example |
+| Field | Type | Required | Description |
 |---|---|---|---|
-| `SQUAD_SECRET_KEY` | Yes | API secret key (format: `sandbox_sk_...`) | `sandbox_sk_abc123...` |
-| `SQUAD_WEBHOOK_SECRET` | Yes | HMAC key for webhook verification | `your_webhook_secret` |
-| `SQUAD_BASE_URL` | Yes | API base URL (sandbox vs production) | `https://sandbox-api-d.squadco.com` |
-| `SQUAD_BENEFICIARY_ACCOUNT` | Sandbox | Required for VA provisioning in sandbox | `4920299492` |
-| `SQUAD_VA_DEV_MOCK` | No | Mock VA provisioning locally (no Squad call) | `True` |
-| `SQUAD_CHECKOUT_DEV_MOCK` | No | Mock checkout URL locally (no Squad call) | `True` |
+| `virtual_account_number` | String | Yes | The virtual account number to receive the simulated payment |
+| `amount` | String | Yes | Amount in naira (e.g., `"20000"` = NGN 20,000) |
 
-**Sandbox vs Production:**
-| Setting | Sandbox | Production |
-|---|---|---|
-| `SQUAD_BASE_URL` | `https://sandbox-api-d.squadco.com` | `https://api-d.squadco.com` |
-| `SQUAD_SECRET_KEY` | `sandbox_sk_...` | `squad_sk_...` |
-| `SQUAD_WEBHOOK_SECRET` | Sandbox webhook secret | Production webhook secret |
-| Simulate payment | Available | Blocked by code |
+### Sample Request
+
+```json
+{
+    "virtual_account_number": "2474681469",
+    "amount": "20000"
+}
+```
+
+### Responses
+
+**200 OK — Success:**
+
+```json
+{
+    "status": 200,
+    "success": true,
+    "message": "Success",
+    "data": "Payment successful"
+}
+```
+
+**400 Bad Request:**
+
+```json
+{
+    "status": 400,
+    "success": false,
+    "message": "amount is required",
+    "data": {}
+}
+```
+
+### Webhook Triggered After Simulate
+
+After a successful simulate call, Squad sends a webhook to our configured URL with this payload:
+
+```json
+{
+    "transaction_reference": "REF4XFKAVZHT1778630602161",
+    "virtual_account_number": "2474681469",
+    "principal_amount": "20000.00",
+    "settled_amount": "20000.00",
+    "fee_charged": "0.00",
+    "transaction_date": "2026-05-12T10:30:02.161Z",
+    "customer_identifier": "acme-corp",
+    "transaction_indicator": "C",
+    "remarks": "Simulated Payment",
+    "currency": "NGN",
+    "channel": "virtual-account",
+    "sender_name": "Test Sender",
+    "encrypted_body": "hmac_sha512_hash_of_body"
+}
+```
+
+Our webhook handler (`apps/webhooks/views.py`) receives this, verifies the signature using `encrypted_body`, looks up the organization by `customer_identifier`, converts NGN to bits, and credits the wallet.
 
 ---
 
-## Summary
+## Environment Variables
 
-| # | Squad API | Method | Our Code Location | Purpose |
-|---|---|---|---|---|
-| 1 | `/transaction/initiate` | POST | `billing/services.py` | Start card-tokenization checkout for Pro subscriptions |
-| 2 | `/transaction/charge_card` | POST | `billing/services.py` | Auto-charge tokenized card for subscription renewals |
-| 3 | `/transaction/cancel/recurring` | PATCH | `billing/services.py` | Revoke card token when user cancels subscription |
-| 4 | `/virtual-account/business` | POST | `bits/va_services.py` | Provision dedicated VA for B2B org bank transfers |
-| 5 | `/virtual-account/simulate/payment` | POST | `bits/views.py` | Test VA deposits in sandbox (triggers webhook) |
-| 6 | `/api/webhooks/squad/` (inbound) | POST | `webhooks/views.py` | Receive payment notifications from Squad |
+| Variable | Required | Description |
+|---|---|---|
+| `SQUAD_SECRET_KEY` | Yes | API secret key (`sandbox_sk_...` or `squad_sk_...`) |
+| `SQUAD_WEBHOOK_SECRET` | Yes | HMAC key for verifying webhook signatures |
+| `SQUAD_BASE_URL` | Yes | `https://sandbox-api-d.squadco.com` (sandbox) or `https://api-d.squadco.com` (production) |
+| `SQUAD_BENEFICIARY_ACCOUNT` | Sandbox | Required for VA provisioning in sandbox |
+| `SQUAD_VA_DEV_MOCK` | No | Set `True` to mock VA provisioning locally |
+| `SQUAD_CHECKOUT_DEV_MOCK` | No | Set `True` to mock checkout URL locally |
+
+---
+
+## Going Live
+
+To switch from sandbox to production:
+
+1. Change `SQUAD_BASE_URL` from `https://sandbox-api-d.squadco.com` to `https://api-d.squadco.com`
+2. Sign up on Squad's live environment
+3. Complete KYC verification
+4. Replace the sandbox secret key with the production secret key from the live dashboard
+5. Update `SQUAD_WEBHOOK_SECRET` with the production webhook secret
