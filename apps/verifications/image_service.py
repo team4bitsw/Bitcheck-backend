@@ -34,7 +34,6 @@ from .services import (
     InsufficientBitsError,
     VerificationError,
 )
-from .storage_upload import upload_bytes_for_connector_owner
 from apps.bits.services import check_balance, get_wallet_for_user
 
 logger = logging.getLogger(__name__)
@@ -184,6 +183,7 @@ def _try_upload_to_r2(user, image_file):
         logger.debug('[IMAGE-R2] R2 credentials not configured — skipping upload')
         return None
     try:
+        from .storage_upload import upload_bytes_for_connector_owner
         image_file.seek(0)
         data = image_file.read()
         image_file.seek(0)
