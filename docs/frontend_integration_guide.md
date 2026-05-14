@@ -973,6 +973,7 @@ or
 | `GET` | `/api/verifications/costs/` | Public | Bit costs per modality |
 | `GET` | `/api/verifications/` | Session | List user's verifications (last 50) |
 | `DELETE` | `/api/verifications/` | Session | Soft-delete ALL user's verifications |
+| `GET` | `/api/verifications/<id>/` | Session | Get verification detail + full results |
 | `DELETE` | `/api/verifications/<id>/` | Session | Soft-delete a single verification |
 | `POST` | `/api/verifications/verify/image/` | Session | Direct image verification (2 bits) |
 | `POST` | `/api/verifications/verify/text/` | Session | Direct text verification (1 bit) |

@@ -112,8 +112,11 @@ def _check_cache(file_hash):
     """
     Look up a file hash in the verification cache.
 
-    Returns (cache_entry, hit) — cache_entry is the ImageVerificationCache
-    object if found, None otherwise. On a hit, increments hit_count atomically.
+    Returns the ImageVerificationCache object if found, None otherwise.
+    On a hit, increments hit_count atomically.
+
+    Gracefully returns None if the cache table doesn't exist yet
+    (migration not run).
     """
     try:
         cache_entry = ImageVerificationCache.objects.get(file_hash=file_hash)
@@ -124,6 +127,10 @@ def _check_cache(file_hash):
         return cache_entry
     except ImageVerificationCache.DoesNotExist:
         return None
+    except Exception as e:
+        # Table doesn't exist yet (migration not run), or other DB error
+        print(f'[IMAGE-CACHE] ⚠️ Cache lookup failed (table may not exist): {e}')
+        return None
 
 
 def _save_to_cache(file_hash, trust_score, result_summary, ml_response_raw, filename):
@@ -132,6 +139,8 @@ def _save_to_cache(file_hash, trust_score, result_summary, ml_response_raw, file
 
     If another request already cached this hash (race condition), just
     ignore the duplicate — the existing entry is equally valid.
+
+    Silently skips if the cache table doesn't exist yet.
     """
     try:
         ImageVerificationCache.objects.create(
@@ -142,9 +151,9 @@ def _save_to_cache(file_hash, trust_score, result_summary, ml_response_raw, file
             original_filename=filename,
         )
         print(f'[IMAGE-CACHE] 💾 Cached result for hash {file_hash[:16]}...')
-    except Exception:
-        # Unique constraint violation = another request cached it first. That's fine.
-        print(f'[IMAGE-CACHE] ⚠️ Cache write skipped (already exists) for {file_hash[:16]}...')
+    except Exception as e:
+        # Unique constraint violation, missing table, or other DB error
+        print(f'[IMAGE-CACHE] ⚠️ Cache write skipped for {file_hash[:16]}...: {e}')
 
 
 def verify_image_direct(

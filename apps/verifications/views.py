@@ -4,6 +4,7 @@ Verification views — retrieval, deletion, and direct verification.
 Endpoints:
   GET    /api/verifications/                — list user's verifications (B2C)
   DELETE /api/verifications/                — delete ALL user's verifications
+  GET    /api/verifications/<id>/           — get verification detail + results
   DELETE /api/verifications/<id>/           — soft-delete a single verification
   GET    /api/verifications/costs/          — get verification costs per modality
   POST   /api/verifications/verify/image/   — direct image verification
@@ -68,10 +69,11 @@ def verification_list_view(request):
     return Response({'verifications': serializer.data})
 
 
-@api_view(['DELETE'])
+@api_view(['GET', 'DELETE'])
 @permission_classes([IsAuthenticated])
 def verification_detail_view(request, verification_id):
     """
+    GET:    Get a single verification's full details including results.
     DELETE: Soft-delete a single verification (sets deleted_at timestamp).
     """
     try:
@@ -86,12 +88,18 @@ def verification_detail_view(request, verification_id):
             status=status.HTTP_404_NOT_FOUND,
         )
 
-    verification.deleted_at = timezone.now()
-    verification.save(update_fields=['deleted_at'])
-    return Response(
-        {'detail': f'Verification {verification_id} deleted.'},
-        status=status.HTTP_200_OK,
-    )
+    if request.method == 'DELETE':
+        verification.deleted_at = timezone.now()
+        verification.save(update_fields=['deleted_at'])
+        return Response(
+            {'detail': f'Verification {verification_id} deleted.'},
+            status=status.HTTP_200_OK,
+        )
+
+    # GET — return full detail
+    return Response({
+        'verification': VerificationSerializer(verification).data,
+    })
 
 
 @api_view(['POST'])

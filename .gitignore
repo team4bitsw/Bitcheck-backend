@@ -34,3 +34,4 @@ Thumbs.db
 # Celery
 celerybeat-schedule
 celerybeat.pid
+/TEST_IMAGES
