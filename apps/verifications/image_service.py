@@ -34,6 +34,7 @@ from .services import (
     InsufficientBitsError,
     VerificationError,
 )
+from .storage_upload import upload_bytes_for_connector_owner
 from apps.bits.services import check_balance, get_wallet_for_user
 
 logger = logging.getLogger(__name__)
@@ -156,6 +157,35 @@ def _save_to_cache(file_hash, trust_score, result_summary, ml_response_raw, file
         print(f'[IMAGE-CACHE] ⚠️ Cache write skipped for {file_hash[:16]}...: {e}')
 
 
+def _try_upload_to_r2(user, image_file):
+    """
+    Upload image bytes to R2 and return an UploadedFile record.
+
+    Returns None gracefully if R2 is not configured or the upload fails,
+    so verification can still complete without image preview.
+    """
+    if not getattr(settings, 'AWS_ACCESS_KEY_ID', '') or \
+       not getattr(settings, 'AWS_SECRET_ACCESS_KEY', ''):
+        logger.debug('[IMAGE-R2] R2 credentials not configured — skipping upload')
+        return None
+    try:
+        image_file.seek(0)
+        data = image_file.read()
+        image_file.seek(0)
+        uploaded_file = upload_bytes_for_connector_owner(
+            user=user,
+            organization=None,
+            data=data,
+            original_filename=image_file.name,
+            mime_type=image_file.content_type or 'image/jpeg',
+        )
+        logger.info('[IMAGE-R2] Uploaded %s to R2 as %s', image_file.name, uploaded_file.storage_key)
+        return uploaded_file
+    except Exception as exc:
+        logger.warning('[IMAGE-R2] Upload failed, continuing without preview: %s', exc)
+        return None
+
+
 def verify_image_direct(
     user,
     image_file,
@@ -220,6 +250,9 @@ def verify_image_direct(
         cached_summary['_cached'] = True
         cached_summary['_cache_hit_count'] = cache_entry.hit_count + 1
 
+        # Upload to R2 so the results page can show the image
+        uploaded_file = _try_upload_to_r2(user, image_file)
+
         # Create Verification record (still needed for user's history + billing)
         with transaction.atomic():
             verification = Verification.objects.create(
@@ -228,6 +261,7 @@ def verify_image_direct(
                 status=Verification.Status.ANALYZING,
                 started_at=timezone.now(),
                 result_summary=cached_summary,
+                uploaded_file=uploaded_file,
             )
 
         # Complete + debit (same as fresh result)
@@ -246,6 +280,9 @@ def verify_image_direct(
     # --- CACHE MISS ---
     print(f'[IMAGE-CACHE] ❌ Cache miss for hash {file_hash[:16]}...')
 
+    # Upload to R2 before processing so the results page can show the image
+    uploaded_file = _try_upload_to_r2(user, image_file)
+
     # --- Create Verification + Job ---
     with transaction.atomic():
         verification = Verification.objects.create(
@@ -260,6 +297,7 @@ def verify_image_direct(
                 'file_size_bytes': image_file.size,
                 'mime_type': content_type,
             },
+            uploaded_file=uploaded_file,
         )
         job = VerificationJob.objects.create(
             verification=verification,
