@@ -8,7 +8,7 @@ Usage in views:
         authentication_classes = [ApiKeyAuthentication]
 
 The authenticated request will have:
-    request.user  → None (API keys are org-level, not user-level)
+    request.user  → the key creator (or first org admin) — a real User
     request.auth  → the ApiKey instance
     request.auth.organization → the Organization
 
@@ -75,9 +75,27 @@ class ApiKeyAuthentication(authentication.BaseAuthentication):
             last_used_at=timezone.now()
         )
 
-        # Return (user=None, auth=api_key)
-        # Views should check request.auth.organization for permissions
-        return (None, api_key)
+        # Resolve a user for request.user — required by IsAuthenticated
+        # and downstream code that does request.user filtering.
+        # Priority: created_by → first admin member of the org
+        user = api_key.created_by
+        if user is None:
+            from apps.accounts.models import OrganizationMembership
+            membership = OrganizationMembership.objects.filter(
+                organization=api_key.organization,
+                role='admin',
+            ).select_related('user').first()
+            if membership:
+                user = membership.user
+
+        if user is None:
+            raise exceptions.AuthenticationFailed(
+                'API key organization has no associated user.'
+            )
+
+        # Return (user, auth=api_key)
+        # request.auth is the ApiKey; request.auth.organization is the org
+        return (user, api_key)
 
     def authenticate_header(self, request):
         """

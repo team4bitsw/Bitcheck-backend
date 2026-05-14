@@ -1,5 +1,15 @@
 # BitCheck Image Verification API Integration Guide
 
+
+| Resource | URL |
+|---|---|
+| **Live API (HF Spaces)** | `https://jaykay73-bitcheck-image.hf.space` |
+| **Swagger/OpenAPI Docs** | `https://jaykay73-bitcheck-image.hf.space/docs` |
+| **Health Check** | `https://jaykay73-bitcheck-image.hf.space/health` |
+| **GitHub Repo** | `https://github.com/Jaykay73/bitcheck` |
+| **HF Space Repo** | `https://huggingface.co/spaces/Jaykay73/Bitcheck-image` |
+
+
 This document outlines the endpoints available in the BitCheck Image Verification API to help backend engineers integrate the image analysis features.
 
 ## Base URL
