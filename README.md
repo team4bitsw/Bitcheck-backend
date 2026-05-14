@@ -64,8 +64,8 @@
 
 ```
 ┌──────────────────┐     ┌──────────────────┐     ┌──────────────────────────┐
-│   Next.js App    │────▶│  Django REST API  │────▶│  ML Services (HF Spaces) │
-│   (Frontend)     │◀────│  (This Repo)      │◀────│  Image + Text Endpoints  │
+│   Next.js App    │────▶│  Django REST API │────▶│  ML Services (HF Spaces) │
+│   (Frontend)     │◀────│  (This Repo)     │◀────│  Image + Text Endpoints  │
 └──────────────────┘     └────────┬─────────┘     └──────────────────────────┘
                                   │
                     ┌─────────────┼─────────────┐
