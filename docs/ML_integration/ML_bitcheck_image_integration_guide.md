@@ -1,155 +1,129 @@
-# BitCheck API — Backend Integration Guide
+# BitCheck Image Verification API Integration Guide
 
-## 🔗 Links
+This document outlines the endpoints available in the BitCheck Image Verification API to help backend engineers integrate the image analysis features.
 
-| Resource | URL |
-|---|---|
-| **Live API (HF Spaces)** | `https://jaykay73-bitcheck-image.hf.space` |
-| **Swagger/OpenAPI Docs** | `https://jaykay73-bitcheck-image.hf.space/docs` |
-| **Health Check** | `https://jaykay73-bitcheck-image.hf.space/health` |
-| **GitHub Repo** | `https://github.com/Jaykay73/bitcheck` |
-| **HF Space Repo** | `https://huggingface.co/spaces/Jaykay73/Bitcheck-image` |
+## Base URL
+The API is typically hosted at `http://localhost:8000` locally, or the appropriate production URL (e.g., your Hugging Face Space URL).
 
 ---
 
-## 📡 API Endpoints
+## Endpoints
 
-### 1. Service Status
-```
-GET /
-```
-Returns `{ "service": "BitCheck Image Verification API", "status": "running" }`
+### 1. Verify Image
+Analyze an uploaded image for AI generation, forensics, and metadata/provenance.
 
-### 2. Health Check
-```
-GET /health
-```
-Returns API status and whether the ML model is loaded.
+**Endpoint:** `POST /verify/image`
 
-### 3. Verify Image ⭐ (Main Endpoint)
-```
-POST /verify/image
-Content-Type: multipart/form-data
-```
+**Content-Type:** `multipart/form-data`
 
-**Form Fields:**
+**Request Parameters (Form Data):**
+- `file` **(Required)**: The image file to analyze (e.g., `.jpg`, `.png`, `.webp`).
+- `user_email` *(Optional)*: Email address of the user who owns this image and report. Useful for retrieving reports later.
+- `run_explainability` *(Optional, Default: true)*: Generate a Grad-CAM heatmap showing which parts of the image influenced the AI prediction.
+- `run_ocr` *(Optional, Default: true)*: Run OCR to detect visible AI tool watermarks.
+- `run_forensics` *(Optional, Default: true)*: Run lightweight forensic analysis (noise, blur, edge inconsistencies).
+- `run_c2pa` *(Optional, Default: true)*: Analyze C2PA provenance data (Content Credentials).
+- `threshold` *(Optional)*: Override the default confidence threshold for the classifier model.
 
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `user_gmail` | `string` | ✅ | Gmail address of the requesting user (must be `@gmail.com` or `@googlemail.com`) |
-| `file` | `file` | ✅ | Image file (JPG, JPEG, PNG, or WEBP, max 12 MB) |
-
-**Example cURL:**
+**cURL Example:**
 ```bash
-curl -X POST "https://jaykay73-bitcheck-image.hf.space/verify/image" \
-  -F "user_gmail=user@gmail.com" \
-  -F "file=@photo.jpg"
+curl -X POST "http://localhost:8000/verify/image" \
+  -H "accept: application/json" \
+  -H "Content-Type: multipart/form-data" \
+  -F "file=@/path/to/your/image.jpg" \
+  -F "user_email=user@example.com"
 ```
 
-**Example JavaScript (fetch):**
-```javascript
-const formData = new FormData();
-formData.append('user_gmail', 'user@gmail.com');
-formData.append('file', imageFile);
-
-const response = await fetch('https://jaykay73-bitcheck-image.hf.space/verify/image', {
-  method: 'POST',
-  body: formData,
-});
-const report = await response.json();
-```
-
-### 4. Get Report by ID
-```
-GET /reports/{verification_id}
-```
-Returns a previously generated verification report.
-
-### 5. Get Output Artifacts
-```
-GET /outputs/{filename}
-```
-Serves generated heatmaps, boxed images, etc.
+**Success Response (200 OK):**
+Returns a comprehensive `VerificationReport` JSON object containing:
+- `verification_id`: A unique ID for this report.
+- `status`: Verification status (`completed`, `error`).
+- `trust`: The final trust score and classification (e.g., `real`, `ai_generated`).
+- Sections for `input`, `filename_analysis`, `metadata`, `provenance`, `visible_watermark_ocr`, `visible_watermark_template`, `classifier`, `forensics`, and `explainability`.
 
 ---
 
-## 📦 Response Schema (`VerificationReport`)
+### 2. Retrieve a Specific Report
+Fetch a previously generated verification report by its ID.
 
+**Endpoint:** `GET /reports/{verification_id}`
+
+**Path Parameters:**
+- `verification_id` **(Required)**: The unique ID returned from the `/verify/image` endpoint.
+
+**cURL Example:**
+```bash
+curl -X GET "http://localhost:8000/reports/b8f9e..." \
+  -H "accept: application/json"
+```
+
+**Success Response (200 OK):**
+Returns the same `VerificationReport` JSON object generated during the upload.
+
+---
+
+### 3. List Reports
+Retrieve a list of past verification reports, optionally filtered by user email.
+
+**Endpoint:** `GET /reports`
+
+**Query Parameters:**
+- `user_email` *(Optional)*: Filter the reports by the user's email address.
+
+**cURL Example:**
+```bash
+curl -X GET "http://localhost:8000/reports?user_email=user@example.com" \
+  -H "accept: application/json"
+```
+
+**Success Response (200 OK):**
 ```json
 {
-  "verification_id": "abc123...",
-  "service": "BitCheck",
-  "file_type": "image",
-  "status": "completed",
-  "user_gmail": "user@gmail.com",
-  "input": {
-    "filename": "photo.jpg",
-    "sha256": "...",
-    "width": 1920,
-    "height": 1080,
-    "format": "JPEG",
-    "size_bytes": 245000
-  },
-  "model_result": {
-    "label": "real" | "ai_generated",
-    "confidence": 0.92,
-    "model_status": "loaded" | "missing"
-  },
-  "provenance": { "status": "checked" | "not_available", ... },
-  "metadata": { "exif": {...}, "software_flags": [...], ... },
-  "visible_watermark": { "ocr_status": "...", ... },
-  "forensics": { "sharpness": ..., "noise_inconsistency": ..., ... },
-  "explainability": {
-    "status": "generated" | "failed",
-    "method": "Grad-CAM",
-    "heatmap_url": "/outputs/abc123_heatmap.png",
-    "boxed_image_url": "/outputs/abc123_boxed.png",
-    "hotspots": [{ "x": 100, "y": 200, "width": 50, "height": 50, "score": 0.85, "label": "high influence region" }],
-    "disclaimer": "..."
-  },
-  "trust": {
-    "score": 72.5,
-    "label": "moderate_risk" | "low_risk" | "high_risk",
-    "breakdown": { ... }
-  },
-  "risk_flags": ["AI editing software detected in metadata", ...],
-  "limitations": ["BitCheck does not make absolute claims...", ...]
+  "count": 1,
+  "reports": [
+    {
+      "verification_id": "...",
+      "user_email": "user@example.com",
+      "filename": "image.jpg",
+      "status": "completed",
+      "trust": {
+        "final_decision": "real",
+        "trust_score_out_of_100": 95,
+        ...
+      },
+      "processing_time_ms": 1205.4
+    }
+  ]
 }
 ```
 
 ---
 
-## ⚙️ Key Integration Notes
+### 4. Health Check
+Check if the API and its underlying services (OCR, C2PA, AI Models) are running correctly.
 
-1. **CORS**: Currently set to `allow_origins=["*"]` — open to all origins. Lock down in production via `CORS_ORIGINS` env var.
-2. **Max Upload**: 12 MB (`MAX_UPLOAD_BYTES=12582912`).
-3. **Accepted Formats**: JPG, JPEG, PNG, WEBP only.
-4. **Gmail Validation**: The `user_gmail` field is validated server-side — only `@gmail.com` and `@googlemail.com` domains are accepted.
-5. **Heatmap/Output URLs**: URLs like `/outputs/abc123_heatmap.png` are **relative** to the API base. Prefix with the base URL when displaying in frontend.
-6. **Model Threshold**: Default `0.5` — `prob_real >= 0.5` = real, `< 0.5` = AI-generated.
-7. **Graceful Degradation**: If any analysis stage fails (model, OCR, C2PA, forensics), the API still returns a report with the remaining layers. Check individual `status` / `error` fields.
+**Endpoint:** `GET /health`
 
----
-
-## 🛡️ Error Responses
-
-| Status | Meaning |
-|---|---|
-| `400` | Invalid image, unreadable file, bad Gmail format, or unsupported file type |
-| `404` | Report not found (for `GET /reports/{id}`) |
-| `422` | Missing required form fields |
-
----
-
-## 🚀 Environment Variables (for self-hosting)
-
-```env
-SERVICE_NAME="BitCheck Image Verification API"
-MAX_UPLOAD_BYTES=12582912
-MODEL_PATH="models/deepfake_detector_efficientnetb0.keras"
-MODEL_ARCH="keras_efficientnetb0"
-MODEL_INPUT_SIZE=224
-MODEL_THRESHOLD=0.5
-LOG_LEVEL="INFO"
-CORS_ORIGINS='["https://yourfrontend.com"]'
+**cURL Example:**
+```bash
+curl -X GET "http://localhost:8000/health" \
+  -H "accept: application/json"
 ```
+
+**Success Response (200 OK):**
+```json
+{
+  "status": "ok",
+  "service": "BitCheck Image Verification API",
+  "classifier_loaded": true,
+  "ocr_available": true,
+  "c2pa_available": true,
+  "device": "cpu"
+}
+```
+
+---
+
+## Static Assets (Explainability & Forensics)
+If `run_explainability` or `run_forensics` are true, the JSON response will include URLs to generated images (e.g., heatmaps or annotated images). These are served via the static `/outputs/` directory.
+Example: `http://localhost:8000/outputs/b8f9e..._gradcam_overlay.jpg`

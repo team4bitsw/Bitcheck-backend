@@ -78,7 +78,7 @@ def process_verification(self, verification_id):
             filename=uf.original_filename if uf else 'unknown',
             file_size_bytes=uf.size_bytes if uf else 0,
             sha256_hash=uf.sha256 if uf else '',
-            user_gmail=verification.user.email if verification.user else '',
+            user_email=verification.user.email if verification.user else '',
         )
         trust_score = mock['trust']['score']
         complete_verification(

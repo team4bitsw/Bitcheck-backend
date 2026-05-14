@@ -253,7 +253,7 @@ Use this to display cost badges next to each modality in the UI.
 Uploads an image directly and runs it through the BitCheck ML pipeline. Returns the full AI analysis inline — no polling needed. Costs **2 bits** on success.
 
 > [!TIP]
-> This is the simplest way to verify images. The backend sends `user_gmail` (from your session) + the file to the ML service automatically. All analysis layers (model, forensics, metadata, provenance, explainability) run by default.
+> This is the simplest way to verify images. The backend sends `user_email` (from your session) + the file to the ML service automatically. All analysis layers (model, forensics, metadata, provenance, explainability) run by default.
 
 > [!NOTE]
 > **Hash-based caching:** The backend computes a SHA-256 hash of every uploaded file. If an identical file was previously analyzed, the cached ML result is returned instantly (no ML call). The response will include `result_summary._cached = true` and `result_summary._cache_hit_count`. Bits are still charged on cache hits — caching optimizes speed, not cost.
@@ -290,7 +290,7 @@ curl -X POST "https://bitscheck-849221325853.europe-west1.run.app/api/verificati
       "sha256": "b1ddf2f9f25c0f9adf...",
       "file_size_bytes": 248391,
       "ml_verification_id": "8d53cf77-2b2d-4d55-b6a9-...",
-      "user_gmail": "user@gmail.com",
+      "user_email": "user@gmail.com",
       "input": {
         "filename": "suspicious_image.jpg",
         "sha256": "...",

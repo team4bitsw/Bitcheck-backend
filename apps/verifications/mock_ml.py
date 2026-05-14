@@ -11,7 +11,7 @@ import uuid
 import random
 
 
-def generate_mock_ml_response(filename, file_size_bytes, sha256_hash, user_gmail=''):
+def generate_mock_ml_response(filename, file_size_bytes, sha256_hash, user_email=''):
     """
     Generate a realistic mock ML response for an image verification.
 
@@ -19,7 +19,7 @@ def generate_mock_ml_response(filename, file_size_bytes, sha256_hash, user_gmail
         filename:        Original filename of the uploaded image.
         file_size_bytes: Size of the file in bytes.
         sha256_hash:     SHA256 hex digest of the file.
-        user_gmail:      User's email address.
+        user_email:      User's email address.
 
     Returns:
         Dict matching the ML service's /verify/image response schema.
@@ -63,7 +63,7 @@ def generate_mock_ml_response(filename, file_size_bytes, sha256_hash, user_gmail
         'service': 'BitCheck',
         'file_type': 'image',
         'status': 'completed',
-        'user_gmail': user_gmail,
+        'user_email': user_email,
         'input': {
             'filename': filename,
             'sha256': sha256_hash,

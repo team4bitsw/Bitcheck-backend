@@ -13,7 +13,7 @@ Flow:
 
 ML API contract (BitCheck Image Verification API):
   - Endpoint: POST {ML_IMAGE_SERVICE_BASE_URL}/verify/image
-  - Form fields: user_gmail (required), file (required)
+  - Form fields: user_email (optional), file (required)
   - Max upload: 12 MB
   - Accepted: JPG, JPEG, PNG, WEBP
 """
@@ -92,7 +92,7 @@ def _map_ml_response(ml_result, label, image_file, file_hash):
         'sha256': file_hash,
         'file_size_bytes': image_file.size,
         'ml_verification_id': ml_result.get('verification_id'),
-        'user_gmail': ml_result.get('user_gmail', ''),
+        'user_email': ml_result.get('user_email', ''),
         'input': ml_result.get('input', {}),
         'model_result': ml_result.get('model_result', {}),
         'metadata': ml_result.get('metadata', {}),
@@ -326,7 +326,7 @@ def verify_image_direct(
             filename=image_file.name,
             file_size_bytes=image_file.size,
             sha256_hash=file_hash,
-            user_gmail=user.email,
+            user_email=user.email,
         )
 
         trust_score, result_summary = _map_ml_response(
@@ -355,15 +355,15 @@ def verify_image_direct(
 
     image_file.seek(0)
 
-    # ML API requires: user_gmail + file (multipart/form-data)
+    # ML API accepts: file (required) + user_email (optional)
     files = {
         'file': (image_file.name, image_file, content_type),
     }
     form_data = {
-        'user_gmail': user.email,
+        'user_email': user.email,
     }
 
-    print(f'[IMAGE-VERIFY] Sending to ML: {ml_url} (user_gmail={user.email})')
+    print(f'[IMAGE-VERIFY] Sending to ML: {ml_url} (user_email={user.email})')
 
     try:
         resp = requests.post(

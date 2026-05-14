@@ -82,7 +82,7 @@ def _call_image_ml(content: VerifiableContent, user_email: str) -> tuple[int, di
     resp = http_lib.post(
         ml_url,
         files={'file': (filename, io.BytesIO(content.payload), mime)},
-        data={'user_gmail': user_email},
+        data={'user_email': user_email},
         timeout=120,
     )
     resp.raise_for_status()
@@ -100,7 +100,7 @@ def _call_image_ml(content: VerifiableContent, user_email: str) -> tuple[int, di
         'original_filename': filename,
         'mime_type': mime,
         'ml_verification_id': ml.get('verification_id'),
-        'user_gmail': ml.get('user_gmail', ''),
+        'user_email': ml.get('user_email', ''),
         'input': ml.get('input', {}),
         'model_result': ml.get('model_result', {}),
         'metadata': ml.get('metadata', {}),
@@ -152,7 +152,7 @@ def _call_mock_ml(content: VerifiableContent, user_email: str) -> tuple[int, dic
         filename=content.filename or 'file',
         file_size_bytes=len(content.payload) if isinstance(content.payload, bytes) else 0,
         sha256_hash='',
-        user_gmail=user_email,
+        user_email=user_email,
     )
     trust_score = int(round(mock['trust']['score']))
     return trust_score, mock
