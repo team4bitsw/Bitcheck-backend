@@ -41,25 +41,36 @@ def _map_text_ml_response(ml_result, text_input, label):
     """
     Map the ML text service response to our result_summary format.
     """
-    trust_data = ml_result.get('trust', {})
-    trust_score = int(trust_data.get('trust_score', 50))
+    # Log raw ML keys for debugging schema mismatches
+    print(f'[TEXT-VERIFY] ML response keys: {list(ml_result.keys()) if ml_result else "None"}')
+
+    # The ML may return trust=None or omit it entirely
+    trust_data = ml_result.get('trust') or {}
+    # Try trust_score first, then score (image-style), then default 50
+    trust_score_raw = (
+        trust_data.get('trust_score')
+        or trust_data.get('score')
+        or ml_result.get('trust_score')
+        or 50
+    )
+    trust_score = int(trust_score_raw)
 
     result_summary = {
         'label': label or '',
         'text_length': len(text_input),
         'text_preview': text_input[:200],
         'ml_verification_id': ml_result.get('verification_id'),
-        'input': ml_result.get('input', {}),
+        'input': ml_result.get('input') or {},
         'trust': trust_data,
-        'risk_flags': ml_result.get('risk_flags', []),
-        'recommended_actions': ml_result.get('recommended_actions', []),
-        'ai_likelihood': ml_result.get('ai_likelihood', {}),
-        'claims': ml_result.get('claims', []),
-        'fraud_signals': ml_result.get('fraud_signals', {}),
-        'manipulation_signals': ml_result.get('manipulation_signals', {}),
-        'source_analysis': ml_result.get('source_analysis', {}),
-        'warnings': ml_result.get('warnings', []),
-        'limitations': ml_result.get('limitations', []),
+        'risk_flags': ml_result.get('risk_flags') or [],
+        'recommended_actions': ml_result.get('recommended_actions') or [],
+        'ai_likelihood': ml_result.get('ai_likelihood') or {},
+        'claims': ml_result.get('claims') or [],
+        'fraud_signals': ml_result.get('fraud_signals') or {},
+        'manipulation_signals': ml_result.get('manipulation_signals') or {},
+        'source_analysis': ml_result.get('source_analysis') or {},
+        'warnings': ml_result.get('warnings') or [],
+        'limitations': ml_result.get('limitations') or [],
     }
 
     return trust_score, result_summary
@@ -213,7 +224,7 @@ def verify_text_direct(
             )
 
             print(f'[TEXT-VERIFY] ML trust_score: {trust_score}, '
-                  f'risk_level: {ml_result.get("trust", {}).get("risk_level")}')
+                  f'risk_level: {(ml_result.get("trust") or {}).get("risk_level")}')
 
             verification = complete_verification(
                 verification_id=verification.id,
