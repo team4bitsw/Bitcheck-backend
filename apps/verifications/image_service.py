@@ -156,6 +156,51 @@ def _save_to_cache(file_hash, trust_score, result_summary, ml_response_raw, file
         print(f'[IMAGE-CACHE] ⚠️ Cache write skipped for {file_hash[:16]}...: {e}')
 
 
+def _attach_r2_if_completed(verification, user, image_file):
+    """
+    After a successful verification, store bytes in R2 and link uploaded_file.
+
+    Runs only when status is COMPLETED so we do not upload if the job failed.
+    """
+    if verification.status != Verification.Status.COMPLETED:
+        return
+    uploaded_file = _try_upload_to_r2(user, image_file)
+    if not uploaded_file:
+        return
+    verification.uploaded_file = uploaded_file
+    verification.save(update_fields=['uploaded_file'])
+
+
+def _try_upload_to_r2(user, image_file):
+    """
+    Upload image bytes to R2 and return an UploadedFile record.
+
+    Returns None gracefully if R2 is not configured or the upload fails,
+    so verification can still complete without image preview.
+    """
+    if not getattr(settings, 'AWS_ACCESS_KEY_ID', '') or \
+       not getattr(settings, 'AWS_SECRET_ACCESS_KEY', ''):
+        logger.debug('[IMAGE-R2] R2 credentials not configured — skipping upload')
+        return None
+    try:
+        from .storage_upload import upload_bytes_for_connector_owner
+        image_file.seek(0)
+        data = image_file.read()
+        image_file.seek(0)
+        uploaded_file = upload_bytes_for_connector_owner(
+            user=user,
+            organization=None,
+            data=data,
+            original_filename=image_file.name,
+            mime_type=image_file.content_type or 'image/jpeg',
+        )
+        logger.info('[IMAGE-R2] Uploaded %s to R2 as %s', image_file.name, uploaded_file.storage_key)
+        return uploaded_file
+    except Exception as exc:
+        logger.warning('[IMAGE-R2] Upload failed, continuing without preview: %s', exc)
+        return None
+
+
 def verify_image_direct(
     user,
     image_file,
@@ -237,6 +282,7 @@ def verify_image_direct(
             result_summary=cached_summary,
             ml_response_raw=cache_entry.ml_response_raw,
         )
+        _attach_r2_if_completed(verification, user, image_file)
 
         print(f'[IMAGE-CACHE] ✅ Verification {verification.id} completed from cache: '
               f'score={cache_entry.trust_score}, verdict={verification.verdict}')
@@ -294,6 +340,7 @@ def verify_image_direct(
             result_summary=result_summary,
             ml_response_raw=ml_result,
         )
+        _attach_r2_if_completed(verification, user, image_file)
 
         # Cache the mock result too (consistent behavior)
         _save_to_cache(file_hash, trust_score, result_summary, ml_result, image_file.name)
@@ -305,6 +352,8 @@ def verify_image_direct(
 
     # --- Real ML service call ---
     ml_url = f'{settings.ML_IMAGE_SERVICE_BASE_URL}/verify/image'
+
+    image_file.seek(0)
 
     # ML API requires: user_gmail + file (multipart/form-data)
     files = {
@@ -327,7 +376,13 @@ def verify_image_direct(
         print(f'[IMAGE-VERIFY] ML response status: {resp.status_code}')
 
         if resp.status_code == 200:
-            ml_result = resp.json()
+            try:
+                ml_result = resp.json()
+            except ValueError:
+                error_msg = 'ML service returned a non-JSON response.'
+                print(f'[IMAGE-VERIFY] ❌ {error_msg}')
+                fail_verification(str(verification.id), error_msg)
+                raise VerificationError(error_msg)
 
             trust_score, result_summary = _map_ml_response(
                 ml_result, label, image_file, file_hash,
@@ -343,6 +398,7 @@ def verify_image_direct(
                 result_summary=result_summary,
                 ml_response_raw=ml_result,
             )
+            _attach_r2_if_completed(verification, user, image_file)
 
             # Save to cache for future identical files
             _save_to_cache(file_hash, trust_score, result_summary, ml_result, image_file.name)
@@ -367,5 +423,11 @@ def verify_image_direct(
     except requests.exceptions.Timeout:
         error_msg = 'ML service request timed out (120s).'
         print(f'[IMAGE-VERIFY] ❌ Timeout: {error_msg}')
+        fail_verification(str(verification.id), error_msg)
+        raise VerificationError(error_msg)
+
+    except requests.exceptions.RequestException as exc:
+        error_msg = f'ML request failed: {exc}'
+        print(f'[IMAGE-VERIFY] ❌ {error_msg}')
         fail_verification(str(verification.id), error_msg)
         raise VerificationError(error_msg)

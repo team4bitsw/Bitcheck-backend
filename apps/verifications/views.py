@@ -11,6 +11,9 @@ Endpoints:
   POST   /api/verifications/verify/text/    — direct text verification
 """
 
+import logging
+import traceback
+
 from django.conf import settings
 from django.utils import timezone
 from rest_framework import status
@@ -28,6 +31,8 @@ from .services import (
     VerificationError,
     get_verification_cost,
 )
+
+logger = logging.getLogger(__name__)
 
 
 @api_view(['GET'])
@@ -147,6 +152,18 @@ def verify_image_view(request):
             {'detail': str(e)},
             status=status.HTTP_400_BAD_REQUEST,
         )
+    except Exception as e:
+        logger.error(
+            '[VERIFY-IMAGE] Unhandled exception for user=%s file=%s: %s\n%s',
+            getattr(request.user, 'email', '?'),
+            getattr(image_file, 'name', '?'),
+            str(e),
+            traceback.format_exc(),
+        )
+        return Response(
+            {'detail': 'An unexpected error occurred. Our team has been notified.'},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
 
     return Response(
         {
@@ -155,7 +172,6 @@ def verify_image_view(request):
         },
         status=status.HTTP_200_OK,
     )
-
 
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
