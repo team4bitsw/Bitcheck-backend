@@ -9,9 +9,19 @@ Endpoints:
   GET    /api/verifications/costs/          — get verification costs per modality
   POST   /api/verifications/verify/image/   — direct image verification
   POST   /api/verifications/verify/text/    — direct text verification
+
+B2B vs B2C:
+  When request.auth is an ApiKey, the request is B2B:
+    - Verification ownership → organization (not user)
+    - Wallet debit → organization wallet (not personal wallet)
+    - An ApiCall usage record is logged
+  When request.auth is NOT an ApiKey, the request is B2C:
+    - Verification ownership → user
+    - Wallet debit → personal wallet
 """
 
 import logging
+import time
 import traceback
 
 from django.conf import settings
@@ -35,6 +45,35 @@ from .services import (
 logger = logging.getLogger(__name__)
 
 
+def _is_b2b(request):
+    """Check if the request is authenticated via B2B API key."""
+    from apps.api_keys.models import ApiKey
+    return isinstance(getattr(request, 'auth', None), ApiKey)
+
+
+def _log_api_call(request, endpoint, modality, http_status, latency_ms, bits_charged=0):
+    """Log a B2B API call for usage tracking. No-op for B2C requests."""
+    if not _is_b2b(request):
+        return None
+    try:
+        from apps.usage.services import log_api_call, generate_request_id, get_client_ip
+        return log_api_call(
+            organization=request.auth.organization,
+            api_key=request.auth,
+            endpoint=endpoint,
+            modality=modality,
+            http_status=http_status,
+            latency_ms=latency_ms,
+            bits_charged=bits_charged,
+            request_id=generate_request_id(),
+            client_ip=get_client_ip(request),
+            user_agent=request.META.get('HTTP_USER_AGENT', ''),
+        )
+    except Exception as exc:
+        logger.warning('[API-CALL-LOG] Failed to log API call: %s', exc)
+        return None
+
+
 @api_view(['GET'])
 @permission_classes([AllowAny])
 def verification_costs_view(request):
@@ -51,12 +90,18 @@ def verification_costs_view(request):
 @permission_classes([IsAuthenticated])
 def verification_list_view(request):
     """
-    GET:    List the current user's verifications.
-    DELETE: Soft-delete ALL of the current user's verifications.
+    GET:    List the current user's (or org's) verifications.
+    DELETE: Soft-delete ALL of the current user's (or org's) verifications.
     """
+    # Build filter based on auth type
+    if _is_b2b(request):
+        base_filter = {'organization': request.auth.organization}
+    else:
+        base_filter = {'user': request.user}
+
     if request.method == 'DELETE':
         count = Verification.objects.filter(
-            user=request.user,
+            **base_filter,
             deleted_at__isnull=True,
         ).update(deleted_at=timezone.now())
         return Response({
@@ -66,7 +111,7 @@ def verification_list_view(request):
 
     # GET — list
     verifications = Verification.objects.filter(
-        user=request.user,
+        **base_filter,
         deleted_at__isnull=True,
     ).order_by('-created_at')[:50]
 
@@ -81,12 +126,22 @@ def verification_detail_view(request, verification_id):
     GET:    Get a single verification's full details including results.
     DELETE: Soft-delete a single verification (sets deleted_at timestamp).
     """
+    # Build filter based on auth type
+    if _is_b2b(request):
+        lookup = {
+            'pk': verification_id,
+            'organization': request.auth.organization,
+            'deleted_at__isnull': True,
+        }
+    else:
+        lookup = {
+            'pk': verification_id,
+            'user': request.user,
+            'deleted_at__isnull': True,
+        }
+
     try:
-        verification = Verification.objects.get(
-            pk=verification_id,
-            user=request.user,
-            deleted_at__isnull=True,
-        )
+        verification = Verification.objects.get(**lookup)
     except Verification.DoesNotExist:
         return Response(
             {'detail': 'Verification not found.'},
@@ -116,14 +171,21 @@ def verify_image_view(request):
     Accepts multipart/form-data. Forwards the image to the ML service,
     stores the results, and debits bits on success.
 
+    B2B: authenticated via API key → org wallet + org ownership
+    B2C: authenticated via session → personal wallet + user ownership
+
     Form fields:
         file*:   Image file (.jpg, .jpeg, .png, .webp) — max 12 MB
         label:   Optional user-provided identifier (e.g., "invoice_q4_2026")
     """
     from .image_service import verify_image_direct
 
+    start_time = time.monotonic()
+
     image_file = request.FILES.get('file')
     if not image_file:
+        if _is_b2b(request):
+            _log_api_call(request, '/verify/image', 'image', 400, 0)
         return Response(
             {'detail': 'No image file provided. Send as multipart/form-data with field name "file".'},
             status=status.HTTP_400_BAD_REQUEST,
@@ -132,13 +194,23 @@ def verify_image_view(request):
     # Parse optional label
     label = request.data.get('label', '').strip()
 
+    # Determine B2B vs B2C context
+    b2b = _is_b2b(request)
+    organization = request.auth.organization if b2b else None
+    api_key = request.auth if b2b else None
+
     try:
         verification, ml_result = verify_image_direct(
             user=request.user,
             image_file=image_file,
             label=label,
+            organization=organization,
+            api_key=api_key,
         )
     except InsufficientBitsError as e:
+        latency = int((time.monotonic() - start_time) * 1000)
+        if b2b:
+            _log_api_call(request, '/verify/image', 'image', 402, latency)
         return Response(
             {
                 'detail': 'Insufficient bits for image verification.',
@@ -148,11 +220,17 @@ def verify_image_view(request):
             status=status.HTTP_402_PAYMENT_REQUIRED,
         )
     except VerificationError as e:
+        latency = int((time.monotonic() - start_time) * 1000)
+        if b2b:
+            _log_api_call(request, '/verify/image', 'image', 400, latency)
         return Response(
             {'detail': str(e)},
             status=status.HTTP_400_BAD_REQUEST,
         )
     except Exception as e:
+        latency = int((time.monotonic() - start_time) * 1000)
+        if b2b:
+            _log_api_call(request, '/verify/image', 'image', 500, latency)
         logger.error(
             '[VERIFY-IMAGE] Unhandled exception for user=%s file=%s: %s\n%s',
             getattr(request.user, 'email', '?'),
@@ -164,6 +242,11 @@ def verify_image_view(request):
             {'detail': 'An unexpected error occurred. Our team has been notified.'},
             status=status.HTTP_500_INTERNAL_SERVER_ERROR,
         )
+
+    latency = int((time.monotonic() - start_time) * 1000)
+    cost = get_verification_cost('image')
+    if b2b:
+        _log_api_call(request, '/verify/image', 'image', 200, latency, bits_charged=cost)
 
     return Response(
         {
@@ -182,6 +265,9 @@ def verify_text_view(request):
     Accepts application/json. Forwards text to the ML text service,
     stores the results, and debits bits on success. Costs 1 bit.
 
+    B2B: authenticated via API key → org wallet + org ownership
+    B2C: authenticated via session → personal wallet + user ownership
+
     JSON fields:
         text*:                Text to verify (5–8000 characters)
         source_url:           Optional URL where the text was found
@@ -194,8 +280,12 @@ def verify_text_view(request):
     """
     from .text_service import verify_text_direct
 
+    start_time = time.monotonic()
+
     text_input = request.data.get('text', '').strip()
     if not text_input:
+        if _is_b2b(request):
+            _log_api_call(request, '/verify/text', 'text', 400, 0)
         return Response(
             {'detail': 'Text input is required. Send JSON with a "text" field.'},
             status=status.HTTP_400_BAD_REQUEST,
@@ -212,6 +302,11 @@ def verify_text_view(request):
     check_claims = request.data.get('check_claims', True)
     check_source_url = request.data.get('check_source_url', True)
 
+    # Determine B2B vs B2C context
+    b2b = _is_b2b(request)
+    organization = request.auth.organization if b2b else None
+    api_key = request.auth if b2b else None
+
     try:
         verification, ml_result = verify_text_direct(
             user=request.user,
@@ -223,8 +318,13 @@ def verify_text_view(request):
             check_fraud_signals=check_fraud_signals,
             check_claims=check_claims,
             check_source_url=check_source_url,
+            organization=organization,
+            api_key=api_key,
         )
     except InsufficientBitsError as e:
+        latency = int((time.monotonic() - start_time) * 1000)
+        if b2b:
+            _log_api_call(request, '/verify/text', 'text', 402, latency)
         return Response(
             {
                 'detail': 'Insufficient bits for text verification.',
@@ -234,10 +334,18 @@ def verify_text_view(request):
             status=status.HTTP_402_PAYMENT_REQUIRED,
         )
     except VerificationError as e:
+        latency = int((time.monotonic() - start_time) * 1000)
+        if b2b:
+            _log_api_call(request, '/verify/text', 'text', 400, latency)
         return Response(
             {'detail': str(e)},
             status=status.HTTP_400_BAD_REQUEST,
         )
+
+    latency = int((time.monotonic() - start_time) * 1000)
+    cost = get_verification_cost('text')
+    if b2b:
+        _log_api_call(request, '/verify/text', 'text', 200, latency, bits_charged=cost)
 
     return Response(
         {

@@ -29,7 +29,7 @@ from .services import (
     InsufficientBitsError,
     VerificationError,
 )
-from apps.bits.services import check_balance, get_wallet_for_user
+from apps.bits.services import check_balance, get_wallet_for_user, get_wallet_for_organization
 
 logger = logging.getLogger(__name__)
 
@@ -86,13 +86,15 @@ def verify_text_direct(
     check_fraud_signals=True,
     check_claims=True,
     check_source_url=True,
+    organization=None,
+    api_key=None,
 ):
     """
     Submit text for verification directly.
 
     Args:
         user:                The authenticated User.
-        text_input:          The text to verify (5–8000 chars).
+        text_input:          The text to verify (5-8000 chars).
         source_url:          Optional URL where the text was found.
         context:             Optional context hint (e.g., "WhatsApp broadcast").
         label:               Optional user-provided tracking identifier.
@@ -100,14 +102,18 @@ def verify_text_direct(
         check_fraud_signals: Whether to check for fraud signals.
         check_claims:        Whether to check claims in the text.
         check_source_url:    Whether to analyze the source URL.
+        organization:        If provided, this is a B2B call - use org wallet.
+        api_key:             If provided, the ApiKey used for this B2B call.
 
     Returns:
-        (Verification, ml_result_dict) — the saved verification + full ML response.
+        (Verification, ml_result_dict) - the saved verification + full ML response.
 
     Raises:
         InsufficientBitsError: Not enough bits.
         VerificationError:     Invalid input or ML service error.
     """
+    is_b2b = organization is not None
+
     # --- Validate text ---
     if not text_input or not text_input.strip():
         raise VerificationError('Text input is required.')
@@ -128,18 +134,27 @@ def verify_text_direct(
 
     # --- Pre-flight balance check ---
     cost = get_verification_cost('text')
-    wallet = get_wallet_for_user(user)
+    if is_b2b:
+        wallet = get_wallet_for_organization(organization)
+    else:
+        wallet = get_wallet_for_user(user)
     if not check_balance(wallet.id, cost):
         raise InsufficientBitsError(required=cost, available=wallet.balance_bits)
 
     # --- Compute text hash for deduplication ---
     text_hash = hashlib.sha256(text_input.encode('utf-8')).hexdigest()
 
+    # --- Build ownership kwargs ---
+    if is_b2b:
+        ownership = {'organization': organization, 'api_key': api_key}
+    else:
+        ownership = {'user': user}
+
     # --- Create Verification + Job ---
     ml_url = f'{settings.ML_TEXT_SERVICE_BASE_URL}/verify/text'
     with transaction.atomic():
         verification = Verification.objects.create(
-            user=user,
+            **ownership,
             modality=Verification.Modality.TEXT,
             status=Verification.Status.ANALYZING,
             started_at=timezone.now(),

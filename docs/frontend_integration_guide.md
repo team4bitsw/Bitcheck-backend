@@ -538,6 +538,79 @@ const verifyText = async (text, sourceUrl = '', context = '') => {
 
 ---
 
+### B2B API Key Usage (Separate from B2C)
+
+> [!IMPORTANT]
+> When the same verification endpoints (`/verify/image/`, `/verify/text/`) are called with an API key instead of a session cookie, the backend automatically routes to the **organization's wallet** instead of the user's personal wallet. B2B and B2C usage are tracked and billed completely separately.
+
+**How it works:**
+
+| Aspect | B2C (Session Cookie) | B2B (API Key) |
+|---|---|---|
+| **Auth header** | `Cookie: sessionid=...` | `Authorization: Bearer bk_test_...` |
+| **Wallet debited** | User's personal wallet | Organization's wallet |
+| **Verification ownership** | `verification.user = you` | `verification.organization = your org` |
+| **Usage tracking** | None | `ApiCall` record logged per request |
+| **List endpoint** | Returns user's verifications | Returns org's verifications |
+
+**B2B Image verification (cURL):**
+```bash
+curl -X POST "https://bitscheck-849221325853.europe-west1.run.app/api/verifications/verify/image/" \
+  -H "Authorization: Bearer bk_test_a8f3b2c1d4e5f6a7b8c9d0e1f2a3b4c5" \
+  -F "file=@suspicious_image.jpg" \
+  -F "label=org_audit_may2026"
+```
+
+**B2B Text verification (cURL):**
+```bash
+curl -X POST "https://bitscheck-849221325853.europe-west1.run.app/api/verifications/verify/text/" \
+  -H "Authorization: Bearer bk_test_a8f3b2c1d4e5f6a7b8c9d0e1f2a3b4c5" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "text": "URGENT! The Federal Government is giving grants...",
+    "source_url": "http://bit.ly/free-grant-now"
+  }'
+```
+
+**B2B JavaScript example:**
+```javascript
+const API_KEY = 'bk_test_a8f3b2c1d4e5f6a7b8c9d0e1f2a3b4c5';
+
+// Image verification via API key
+const verifyImageB2B = async (file, label = '') => {
+  const form = new FormData();
+  form.append('file', file);
+  form.append('label', label);
+
+  const response = await fetch('/api/verifications/verify/image/', {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${API_KEY}` },
+    body: form,
+  });
+
+  return response.json();
+};
+
+// Text verification via API key
+const verifyTextB2B = async (text, sourceUrl = '') => {
+  const response = await fetch('/api/verifications/verify/text/', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${API_KEY}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ text, source_url: sourceUrl }),
+  });
+
+  return response.json();
+};
+```
+
+> [!NOTE]
+> The response format is identical for B2B and B2C. The only difference is which wallet is charged and which entity owns the verification record. B2B callers do NOT need `credentials: 'include'` since they are using Bearer token auth, not cookies.
+
+---
+
 ## 4. Dashboards & Token Economy
 
 ### B2C Dashboard Endpoints
@@ -971,12 +1044,12 @@ or
 | `POST` | `/api/keys/` | Session | Create API key (one-time secret) |
 | `POST` | `/api/keys/<id>/revoke/` | Session | Revoke an API key |
 | `GET` | `/api/verifications/costs/` | Public | Bit costs per modality |
-| `GET` | `/api/verifications/` | Session | List user's verifications (last 50) |
-| `DELETE` | `/api/verifications/` | Session | Soft-delete ALL user's verifications |
-| `GET` | `/api/verifications/<id>/` | Session | Get verification detail + full results |
-| `DELETE` | `/api/verifications/<id>/` | Session | Soft-delete a single verification |
-| `POST` | `/api/verifications/verify/image/` | Session | Direct image verification (2 bits) |
-| `POST` | `/api/verifications/verify/text/` | Session | Direct text verification (1 bit) |
+| `GET` | `/api/verifications/` | Session or Bearer | List verifications (user's for B2C, org's for B2B) |
+| `DELETE` | `/api/verifications/` | Session or Bearer | Soft-delete ALL verifications (scoped to user or org) |
+| `GET` | `/api/verifications/<id>/` | Session or Bearer | Get verification detail + full results |
+| `DELETE` | `/api/verifications/<id>/` | Session or Bearer | Soft-delete a single verification |
+| `POST` | `/api/verifications/verify/image/` | Session or Bearer | Direct image verification (2 bits from user or org wallet) |
+| `POST` | `/api/verifications/verify/text/` | Session or Bearer | Direct text verification (1 bit from user or org wallet) |
 | `POST` | `/api/webhooks/squad/` | HMAC | Squad payment webhook (server-to-server) |
 | `GET` | `/api/schema/` | Public | OpenAPI 3.0 JSON schema |
 | `GET` | `/api/docs/` | Public | Swagger UI (interactive) |

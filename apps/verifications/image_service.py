@@ -34,7 +34,7 @@ from .services import (
     InsufficientBitsError,
     VerificationError,
 )
-from apps.bits.services import check_balance, get_wallet_for_user
+from apps.bits.services import check_balance, get_wallet_for_user, get_wallet_for_organization
 
 logger = logging.getLogger(__name__)
 
@@ -205,6 +205,8 @@ def verify_image_direct(
     user,
     image_file,
     label=None,
+    organization=None,
+    api_key=None,
 ):
     """
     Submit an image for verification directly (no S3 upload needed).
@@ -217,6 +219,8 @@ def verify_image_direct(
         user:               The authenticated User.
         image_file:         Django UploadedFile (from request.FILES).
         label:              Optional user-provided label/identifier for this check.
+        organization:       If provided, this is a B2B call — use org wallet.
+        api_key:            If provided, the ApiKey used for this B2B call.
 
     Returns:
         (Verification, ml_result_dict) — the saved verification + full ML response.
@@ -225,6 +229,8 @@ def verify_image_direct(
         InsufficientBitsError: Not enough bits.
         VerificationError:     Invalid file or ML service error.
     """
+    is_b2b = organization is not None
+
     # --- Validate file ---
     content_type = image_file.content_type or ''
     if content_type not in ALLOWED_IMAGE_TYPES:
@@ -241,21 +247,31 @@ def verify_image_direct(
 
     # --- Pre-flight balance check ---
     cost = get_verification_cost('image')
-    wallet = get_wallet_for_user(user)
+    if is_b2b:
+        wallet = get_wallet_for_organization(organization)
+    else:
+        wallet = get_wallet_for_user(user)
     if not check_balance(wallet.id, cost):
         raise InsufficientBitsError(required=cost, available=wallet.balance_bits)
 
     # --- Compute SHA-256 (chunked, memory-safe) ---
     file_hash = compute_file_hash(image_file)
 
+    owner_label = f'org:{organization.name}' if is_b2b else f'user:{user.email}'
     print(f'[IMAGE-VERIFY] File: {image_file.name}, size={image_file.size}, hash={file_hash[:16]}...')
-    print(f'[IMAGE-VERIFY] Label: {label or "(none)"}, user: {user.email}')
+    print(f'[IMAGE-VERIFY] Label: {label or "(none)"}, {owner_label}, b2b={is_b2b}')
+
+    # --- Build ownership kwargs ---
+    if is_b2b:
+        ownership = {'organization': organization, 'api_key': api_key}
+    else:
+        ownership = {'user': user}
 
     # --- CACHE CHECK ---
     cache_entry = _check_cache(file_hash)
 
     if cache_entry:
-        print(f'[IMAGE-CACHE] ✅ CACHE HIT for hash {file_hash[:16]}... '
+        print(f'[IMAGE-CACHE] CACHE HIT for hash {file_hash[:16]}... '
               f'(hits={cache_entry.hit_count + 1}, score={cache_entry.trust_score})')
 
         # Build result_summary from cache, overriding user-specific fields
@@ -265,10 +281,10 @@ def verify_image_direct(
         cached_summary['_cached'] = True
         cached_summary['_cache_hit_count'] = cache_entry.hit_count + 1
 
-        # Create Verification record (still needed for user's history + billing)
+        # Create Verification record (still needed for history + billing)
         with transaction.atomic():
             verification = Verification.objects.create(
-                user=user,
+                **ownership,
                 modality=Verification.Modality.IMAGE,
                 status=Verification.Status.ANALYZING,
                 started_at=timezone.now(),
@@ -284,18 +300,18 @@ def verify_image_direct(
         )
         _attach_r2_if_completed(verification, user, image_file)
 
-        print(f'[IMAGE-CACHE] ✅ Verification {verification.id} completed from cache: '
+        print(f'[IMAGE-CACHE] Verification {verification.id} completed from cache: '
               f'score={cache_entry.trust_score}, verdict={verification.verdict}')
 
         return verification, cache_entry.ml_response_raw
 
     # --- CACHE MISS ---
-    print(f'[IMAGE-CACHE] ❌ Cache miss for hash {file_hash[:16]}...')
+    print(f'[IMAGE-CACHE] Cache miss for hash {file_hash[:16]}...')
 
     # --- Create Verification + Job ---
     with transaction.atomic():
         verification = Verification.objects.create(
-            user=user,
+            **ownership,
             modality=Verification.Modality.IMAGE,
             status=Verification.Status.ANALYZING,
             started_at=timezone.now(),
