@@ -157,6 +157,21 @@ def _save_to_cache(file_hash, trust_score, result_summary, ml_response_raw, file
         print(f'[IMAGE-CACHE] ⚠️ Cache write skipped for {file_hash[:16]}...: {e}')
 
 
+def _attach_r2_if_completed(verification, user, image_file):
+    """
+    After a successful verification, store bytes in R2 and link uploaded_file.
+
+    Runs only when status is COMPLETED so we do not upload if the job failed.
+    """
+    if verification.status != Verification.Status.COMPLETED:
+        return
+    uploaded_file = _try_upload_to_r2(user, image_file)
+    if not uploaded_file:
+        return
+    verification.uploaded_file = uploaded_file
+    verification.save(update_fields=['uploaded_file'])
+
+
 def _try_upload_to_r2(user, image_file):
     """
     Upload image bytes to R2 and return an UploadedFile record.
@@ -250,9 +265,6 @@ def verify_image_direct(
         cached_summary['_cached'] = True
         cached_summary['_cache_hit_count'] = cache_entry.hit_count + 1
 
-        # Upload to R2 so the results page can show the image
-        uploaded_file = _try_upload_to_r2(user, image_file)
-
         # Create Verification record (still needed for user's history + billing)
         with transaction.atomic():
             verification = Verification.objects.create(
@@ -261,7 +273,6 @@ def verify_image_direct(
                 status=Verification.Status.ANALYZING,
                 started_at=timezone.now(),
                 result_summary=cached_summary,
-                uploaded_file=uploaded_file,
             )
 
         # Complete + debit (same as fresh result)
@@ -271,6 +282,7 @@ def verify_image_direct(
             result_summary=cached_summary,
             ml_response_raw=cache_entry.ml_response_raw,
         )
+        _attach_r2_if_completed(verification, user, image_file)
 
         print(f'[IMAGE-CACHE] ✅ Verification {verification.id} completed from cache: '
               f'score={cache_entry.trust_score}, verdict={verification.verdict}')
@@ -279,9 +291,6 @@ def verify_image_direct(
 
     # --- CACHE MISS ---
     print(f'[IMAGE-CACHE] ❌ Cache miss for hash {file_hash[:16]}...')
-
-    # Upload to R2 before processing so the results page can show the image
-    uploaded_file = _try_upload_to_r2(user, image_file)
 
     # --- Create Verification + Job ---
     with transaction.atomic():
@@ -297,7 +306,6 @@ def verify_image_direct(
                 'file_size_bytes': image_file.size,
                 'mime_type': content_type,
             },
-            uploaded_file=uploaded_file,
         )
         job = VerificationJob.objects.create(
             verification=verification,
@@ -332,6 +340,7 @@ def verify_image_direct(
             result_summary=result_summary,
             ml_response_raw=ml_result,
         )
+        _attach_r2_if_completed(verification, user, image_file)
 
         # Cache the mock result too (consistent behavior)
         _save_to_cache(file_hash, trust_score, result_summary, ml_result, image_file.name)
@@ -343,6 +352,8 @@ def verify_image_direct(
 
     # --- Real ML service call ---
     ml_url = f'{settings.ML_IMAGE_SERVICE_BASE_URL}/verify/image'
+
+    image_file.seek(0)
 
     # ML API requires: user_gmail + file (multipart/form-data)
     files = {
@@ -365,7 +376,13 @@ def verify_image_direct(
         print(f'[IMAGE-VERIFY] ML response status: {resp.status_code}')
 
         if resp.status_code == 200:
-            ml_result = resp.json()
+            try:
+                ml_result = resp.json()
+            except ValueError:
+                error_msg = 'ML service returned a non-JSON response.'
+                print(f'[IMAGE-VERIFY] ❌ {error_msg}')
+                fail_verification(str(verification.id), error_msg)
+                raise VerificationError(error_msg)
 
             trust_score, result_summary = _map_ml_response(
                 ml_result, label, image_file, file_hash,
@@ -381,6 +398,7 @@ def verify_image_direct(
                 result_summary=result_summary,
                 ml_response_raw=ml_result,
             )
+            _attach_r2_if_completed(verification, user, image_file)
 
             # Save to cache for future identical files
             _save_to_cache(file_hash, trust_score, result_summary, ml_result, image_file.name)
@@ -405,5 +423,11 @@ def verify_image_direct(
     except requests.exceptions.Timeout:
         error_msg = 'ML service request timed out (120s).'
         print(f'[IMAGE-VERIFY] ❌ Timeout: {error_msg}')
+        fail_verification(str(verification.id), error_msg)
+        raise VerificationError(error_msg)
+
+    except requests.exceptions.RequestException as exc:
+        error_msg = f'ML request failed: {exc}'
+        print(f'[IMAGE-VERIFY] ❌ {error_msg}')
         fail_verification(str(verification.id), error_msg)
         raise VerificationError(error_msg)
