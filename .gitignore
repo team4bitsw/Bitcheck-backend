@@ -14,7 +14,6 @@ venv/
 .env
 .env.local
 docs/LOCAL_SETUP.md
-docs/system_documentation.md
 
 # Django
 db.sqlite3
