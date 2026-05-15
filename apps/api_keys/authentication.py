@@ -118,9 +118,9 @@ class ApiKeyOrSessionAuthentication(authentication.BaseAuthentication):
         if result is not None:
             return result
 
-        # Fall back to session auth
-        from rest_framework.authentication import SessionAuthentication
-        session_auth = SessionAuthentication()
+        # Fall back to CSRF-exempt session auth
+        from apps.accounts.authentication import CsrfExemptSessionAuthentication
+        session_auth = CsrfExemptSessionAuthentication()
         return session_auth.authenticate(request)
 
     def authenticate_header(self, request):
