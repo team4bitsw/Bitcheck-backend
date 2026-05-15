@@ -113,6 +113,11 @@ When a frontend sends `POST /api/auth/login/`:
 
 **Existing User Org Setup:** `POST /api/auth/setup-org/` lets an existing individual user create an organization after signup. Takes `organization_name` and optional `organization_description`, creates the org + admin membership, and updates `account_type` to `business`.
 
+**Password Reset (token-based):**
+- `POST /api/auth/forgot-password/` — accepts `{ "email" }`, generates a time-limited token via Django's `PasswordResetTokenGenerator`. Always returns 200 (anti-enumeration). In DEBUG mode, returns `uid` + `token` + `reset_url` in the response for dev testing; in production, would send an email.
+- `POST /api/auth/reset-password/` — accepts `{ "uid", "token", "new_password" }`, validates the token, sets the new password. Tokens are cryptographic (HMAC-SHA256 over user PK + password hash + timestamp), single-use (invalidated when password changes), and expire per `PASSWORD_RESET_TIMEOUT` (default 3 days).
+- The `reset_url` points to `{FRONTEND_APP_BASE_URL}/reset-password?uid=...&token=...` — the frontend reads query params and POSTs to the reset endpoint.
+
 **Auto-provisioning signal (`billing/signals.py`):** When a user is created (any method), `post_save` automatically creates a TokenWallet, a free Subscription, and credits 3 initial bits.
 
 ### 3.2 `billing` — Plans & Subscriptions (B2C)

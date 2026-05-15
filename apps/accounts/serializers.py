@@ -234,3 +234,36 @@ class SetupOrgSerializer(serializers.Serializer):
                 'detail': 'You already belong to an organization.',
             })
         return attrs
+
+
+# ============================================================
+# Password reset
+# ============================================================
+
+class ForgotPasswordSerializer(serializers.Serializer):
+    """Accepts an email and triggers a password reset."""
+
+    email = serializers.EmailField()
+
+    def validate_email(self, value):
+        return value.lower().strip()
+
+
+class ResetPasswordSerializer(serializers.Serializer):
+    """Accepts uid, token, and new_password to complete a password reset."""
+
+    uid = serializers.CharField()
+    token = serializers.CharField()
+    new_password = serializers.CharField(min_length=8, write_only=True)
+
+    def validate_new_password(self, value):
+        if len(value) < 8:
+            raise serializers.ValidationError(
+                'Password must be at least 8 characters.'
+            )
+        if value.isdigit():
+            raise serializers.ValidationError(
+                'Password cannot be entirely numeric.'
+            )
+        return value
+

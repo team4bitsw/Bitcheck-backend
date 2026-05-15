@@ -187,6 +187,101 @@ Lets an existing individual user create an organization after signup (e.g., they
 
 **Response (200):** `{ "detail": "Logged out successfully." }`
 
+#### Forgot Password
+
+`POST /api/auth/forgot-password/` — **Public, no auth required.**
+
+Sends a password reset token for the given email. Always returns 200 regardless of whether the email exists (prevents email enumeration).
+
+**Request:**
+```json
+{ "email": "user@example.com" }
+```
+
+**Response (200):**
+```json
+{
+  "detail": "If an account with that email exists, a password reset link has been sent.",
+  "reset_url": "https://bitcheckapp.vercel.app/reset-password?uid=MWUyZjNhNGI&token=c5f3a7..."
+}
+```
+
+> [!NOTE]
+> In `DEBUG` mode, the response also includes raw `uid` and `token` fields for testing without an email provider. In production, only `reset_url` is included (and an email would be sent).
+
+**Frontend implementation:**
+```javascript
+const forgotPassword = async (email) => {
+  const response = await fetch('/api/auth/forgot-password/', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email }),
+  });
+  return response.json();
+};
+```
+
+> [!TIP]
+> Always show a success message to the user regardless of the response — "Check your email for a reset link." This matches the backend's anti-enumeration behavior.
+
+#### Reset Password
+
+`POST /api/auth/reset-password/` — **Public, no auth required.**
+
+Consumes a reset token and sets a new password. The `uid` and `token` come from the reset URL query parameters.
+
+**Request:**
+```json
+{
+  "uid": "MWUyZjNhNGI",
+  "token": "c5f3a7-abc123def456",
+  "new_password": "NewSecurePassword123!"
+}
+```
+
+**Response (200):**
+```json
+{ "detail": "Password has been reset successfully. You can now log in." }
+```
+
+**Error (400) — invalid or expired token:**
+```json
+{ "detail": "Invalid or expired reset link." }
+```
+
+**Password rules:**
+- Minimum 8 characters
+- Cannot be entirely numeric
+
+**Frontend implementation:**
+```javascript
+// Extract uid and token from URL: /reset-password?uid=...&token=...
+const params = new URLSearchParams(window.location.search);
+
+const resetPassword = async (newPassword) => {
+  const response = await fetch('/api/auth/reset-password/', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      uid: params.get('uid'),
+      token: params.get('token'),
+      new_password: newPassword,
+    }),
+  });
+
+  if (!response.ok) {
+    const err = await response.json();
+    alert(err.detail);  // "Invalid or expired reset link."
+    return null;
+  }
+
+  return response.json();  // success — redirect to login
+};
+```
+
+> [!IMPORTANT]
+> Reset tokens are single-use. Once the password is changed, the token is automatically invalidated. Tokens also expire after 3 days (Django's `PASSWORD_RESET_TIMEOUT` default).
+
 #### Current User Profile
 
 `GET /api/auth/me/` — Returns `{ "user": { ... } }` with the full user object.
@@ -1031,6 +1126,8 @@ or
 | `POST` | `/api/auth/login/` | Public | Email/password login |
 | `POST` | `/api/auth/logout/` | Session | Destroy session |
 | `POST` | `/api/auth/google/` | Public | Google OAuth token exchange |
+| `POST` | `/api/auth/forgot-password/` | Public | Request password reset token |
+| `POST` | `/api/auth/reset-password/` | Public | Reset password with token |
 | `GET` | `/api/auth/me/` | Session | Get current user profile |
 | `PATCH` | `/api/auth/me/` | Session | Update profile |
 | `GET` | `/api/billing/plans/` | Public | List all active plans |

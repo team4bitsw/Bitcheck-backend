@@ -16,4 +16,6 @@ urlpatterns = [
     path('google/', views.google_auth_view, name='google-auth'),
     path('me/', views.me_view, name='me'),
     path('setup-org/', views.setup_org_view, name='setup-org'),
+    path('forgot-password/', views.forgot_password_view, name='forgot-password'),
+    path('reset-password/', views.reset_password_view, name='reset-password'),
 ]

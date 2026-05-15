@@ -2,18 +2,23 @@
 Accounts views — authentication and user management.
 
 Endpoints:
-  POST /api/auth/register/       — email/password registration
-  POST /api/auth/login/          — email/password session login
-  POST /api/auth/logout/         — session logout
-  POST /api/auth/google/         — Google OAuth id_token → session
-  GET  /api/auth/me/             — current user profile
-  PATCH /api/auth/me/            — update profile
-  POST /api/auth/setup-org/      — create org + membership (personal → business)
+  POST /api/auth/register/        — email/password registration
+  POST /api/auth/login/           — email/password session login
+  POST /api/auth/logout/          — session logout
+  POST /api/auth/google/          — Google OAuth id_token -> session
+  GET  /api/auth/me/              — current user profile
+  PATCH /api/auth/me/             — update profile
+  POST /api/auth/setup-org/       — create org + membership (personal -> business)
+  POST /api/auth/forgot-password/ — request a password reset token
+  POST /api/auth/reset-password/  — consume token + set new password
 """
 
 from django.conf import settings
 from django.contrib.auth import login, logout
+from django.contrib.auth.tokens import default_token_generator
 from django.db import transaction
+from django.utils.encoding import force_bytes, force_str
+from django.utils.http import urlsafe_base64_encode, urlsafe_base64_decode
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes
@@ -34,6 +39,8 @@ from .serializers import (
     UserUpdateSerializer,
     SetupOrgSerializer,
     OrganizationSerializer,
+    ForgotPasswordSerializer,
+    ResetPasswordSerializer,
 )
 
 log = logger.child('accounts')
@@ -278,5 +285,111 @@ def me_view(request):
             'detail': 'Profile updated.',
             'user': UserSerializer(user).data,
         },
+        status=status.HTTP_200_OK,
+    )
+
+
+# ============================================================
+# Forgot / Reset Password
+# ============================================================
+
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def forgot_password_view(request):
+    """
+    Request a password reset.
+
+    Accepts { "email": "user@example.com" }.
+    Always returns 200 regardless of whether the email exists
+    (prevents email enumeration).
+
+    In development: returns the reset token + uid in the response
+    so you can test without an email provider.
+    In production: would send an email with a reset link.
+    """
+    serializer = ForgotPasswordSerializer(data=request.data)
+    serializer.is_valid(raise_exception=True)
+    email = serializer.validated_data['email']
+
+    # Generic success message (always, to prevent enumeration)
+    success_msg = 'If an account with that email exists, a password reset link has been sent.'
+
+    try:
+        user = User.objects.get(email=email, is_active=True)
+    except User.DoesNotExist:
+        log.info('forgot_password_no_user', email=email)
+        return Response({'detail': success_msg}, status=status.HTTP_200_OK)
+
+    # Generate token
+    uid = urlsafe_base64_encode(force_bytes(user.pk))
+    token = default_token_generator.make_token(user)
+
+    log.info('forgot_password_token_generated', user_id=str(user.pk), uid=uid)
+
+    # Build reset URL for frontend
+    frontend_base = getattr(settings, 'FRONTEND_APP_BASE_URL', 'http://localhost:3000').rstrip('/')
+    reset_url = f'{frontend_base}/reset-password?uid={uid}&token={token}'
+
+    # TODO: Send email with reset_url in production.
+    # For now, include the token in the response for dev/testing.
+    response_data = {'detail': success_msg, 'reset_url': reset_url}
+
+    # In dev, also include raw uid/token for easy testing
+    if settings.DEBUG:
+        response_data['uid'] = uid
+        response_data['token'] = token
+
+    return Response(response_data, status=status.HTTP_200_OK)
+
+
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def reset_password_view(request):
+    """
+    Reset password using uid + token from the forgot-password flow.
+
+    Accepts:
+        {
+            "uid": "base64-encoded-user-id",
+            "token": "password-reset-token",
+            "new_password": "newSecurePassword123"
+        }
+
+    Returns 200 on success, 400 on invalid/expired token.
+    """
+    serializer = ResetPasswordSerializer(data=request.data)
+    serializer.is_valid(raise_exception=True)
+
+    uid_b64 = serializer.validated_data['uid']
+    token = serializer.validated_data['token']
+    new_password = serializer.validated_data['new_password']
+
+    # Decode uid
+    try:
+        uid = force_str(urlsafe_base64_decode(uid_b64))
+        user = User.objects.get(pk=uid, is_active=True)
+    except (TypeError, ValueError, OverflowError, User.DoesNotExist):
+        log.warning('reset_password_invalid_uid', uid=uid_b64)
+        return Response(
+            {'detail': 'Invalid or expired reset link.'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    # Verify token
+    if not default_token_generator.check_token(user, token):
+        log.warning('reset_password_invalid_token', user_id=str(user.pk))
+        return Response(
+            {'detail': 'Invalid or expired reset link.'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    # Set new password
+    user.set_password(new_password)
+    user.save(update_fields=['password'])
+
+    log.info('reset_password_ok', user_id=str(user.pk))
+
+    return Response(
+        {'detail': 'Password has been reset successfully. You can now log in.'},
         status=status.HTTP_200_OK,
     )

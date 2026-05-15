@@ -2,7 +2,32 @@
 
 Living doc: append a dated section when adding or changing API or account/org behavior.
 
-## 2026-05-12 — Image verification, webhook fixes, sandbox tooling, bit economy changes
+## 2026-05-15 -- Forgot / reset password
+
+### Added
+
+- **Forgot password endpoint**
+  - `POST /api/auth/forgot-password/` -- public, accepts `{ "email": "..." }`
+  - Always returns 200 (prevents email enumeration)
+  - Generates a time-limited token via Django's `PasswordResetTokenGenerator`
+  - In `DEBUG` mode: returns `uid`, `token`, and `reset_url` in the response for dev testing
+  - In production: would send an email with the `reset_url` (TODO: configure `EMAIL_BACKEND`)
+
+- **Reset password endpoint**
+  - `POST /api/auth/reset-password/` -- public, accepts `{ "uid", "token", "new_password" }`
+  - Validates token (cryptographic, expires per `PASSWORD_RESET_TIMEOUT`, default 3 days)
+  - Password validation: min 8 chars, cannot be entirely numeric
+  - Returns 200 on success, 400 on invalid/expired token
+  - Tokens are single-use (Django invalidates them once the password hash changes)
+
+- **Serializers:** `ForgotPasswordSerializer`, `ResetPasswordSerializer` in `accounts/serializers.py`
+
+**Files touched:** `apps/accounts/views.py`, `apps/accounts/serializers.py`, `apps/accounts/urls.py`
+
+---
+
+
+## 2026-05-12 -- Image verification, webhook fixes, sandbox tooling, bit economy changes
 
 ### Added
 
