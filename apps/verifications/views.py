@@ -2,13 +2,14 @@
 Verification views — retrieval, deletion, and direct verification.
 
 Endpoints:
-  GET    /api/verifications/                — list user's verifications (B2C)
-  DELETE /api/verifications/                — delete ALL user's verifications
-  GET    /api/verifications/<id>/           — get verification detail + results
-  DELETE /api/verifications/<id>/           — soft-delete a single verification
-  GET    /api/verifications/costs/          — get verification costs per modality
-  POST   /api/verifications/verify/image/   — direct image verification
-  POST   /api/verifications/verify/text/    — direct text verification
+  GET    /api/verifications/                  — list user's verifications (B2C)
+  DELETE /api/verifications/                  — delete ALL user's verifications
+  GET    /api/verifications/<id>/             — get verification detail + results
+  DELETE /api/verifications/<id>/             — soft-delete a single verification
+  GET    /api/verifications/costs/            — get verification costs per modality
+  POST   /api/verifications/verify/image/     — direct image verification
+  POST   /api/verifications/verify/text/      — direct text verification
+  POST   /api/verifications/verify/document/  — direct document verification
 
 B2B vs B2C:
   When request.auth is an ApiKey, the request is B2B:
@@ -350,6 +351,136 @@ def verify_text_view(request):
     return Response(
         {
             'detail': 'Text verification completed.',
+            'verification': VerificationSerializer(verification).data,
+        },
+        status=status.HTTP_200_OK,
+    )
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def verify_document_view(request):
+    """
+    Direct document verification — upload a document and get analysis results.
+
+    Accepts multipart/form-data. Forwards the document to the ML document
+    service, stores the results, and debits 3 bits on success.
+
+    B2B: authenticated via API key → org wallet + org ownership
+    B2C: authenticated via session → personal wallet + user ownership
+
+    Form fields:
+        file*:              Document file (.pdf, .jpg, .jpeg, .png) — max 20 MB
+        label:              Optional user-provided identifier
+        document_type:      Type hint: "general", "invoice", "id_card", etc. (default: "general")
+        run_ocr:            Extract text via OCR (default: true)
+        run_forensics:      Run visual tampering checks (default: true)
+        run_qr:             Scan for QR codes (default: true)
+        run_live_qr_check:  Verify QR URLs live (default: false)
+        run_llm_analysis:   Use LLM for deep analysis (default: true)
+        max_pages:          Max pages for multi-page PDFs (default: 5)
+    """
+    from .document_service import verify_document_direct
+
+    start_time = time.monotonic()
+
+    doc_file = request.FILES.get('file')
+    if not doc_file:
+        if _is_b2b(request):
+            _log_api_call(request, '/verify/document', 'document', 400, 0)
+        return Response(
+            {'detail': 'No document file provided. Send as multipart/form-data with field name "file".'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    # Parse optional fields
+    label = request.data.get('label', '').strip()
+    document_type = request.data.get('document_type', 'general').strip() or 'general'
+
+    # Analysis toggles (booleans sent as form strings)
+    def _parse_bool(val, default=True):
+        if isinstance(val, bool):
+            return val
+        if isinstance(val, str):
+            return val.lower() not in ('false', '0', 'no')
+        return default
+
+    run_ocr = _parse_bool(request.data.get('run_ocr', True))
+    run_forensics = _parse_bool(request.data.get('run_forensics', True))
+    run_qr = _parse_bool(request.data.get('run_qr', True))
+    run_live_qr_check = _parse_bool(request.data.get('run_live_qr_check', False), default=False)
+    run_llm_analysis = _parse_bool(request.data.get('run_llm_analysis', True))
+
+    try:
+        max_pages = int(request.data.get('max_pages', 5))
+        max_pages = max(1, min(max_pages, 20))  # Clamp to 1-20
+    except (TypeError, ValueError):
+        max_pages = 5
+
+    # Determine B2B vs B2C context
+    b2b = _is_b2b(request)
+    organization = request.auth.organization if b2b else None
+    api_key = request.auth if b2b else None
+
+    try:
+        verification, ml_result = verify_document_direct(
+            user=request.user,
+            doc_file=doc_file,
+            label=label,
+            document_type=document_type,
+            run_ocr=run_ocr,
+            run_forensics=run_forensics,
+            run_qr=run_qr,
+            run_live_qr_check=run_live_qr_check,
+            run_llm_analysis=run_llm_analysis,
+            max_pages=max_pages,
+            organization=organization,
+            api_key=api_key,
+        )
+    except InsufficientBitsError as e:
+        latency = int((time.monotonic() - start_time) * 1000)
+        if b2b:
+            _log_api_call(request, '/verify/document', 'document', 402, latency)
+        return Response(
+            {
+                'detail': 'Insufficient bits for document verification.',
+                'required': e.required,
+                'available': e.available,
+            },
+            status=status.HTTP_402_PAYMENT_REQUIRED,
+        )
+    except VerificationError as e:
+        latency = int((time.monotonic() - start_time) * 1000)
+        if b2b:
+            _log_api_call(request, '/verify/document', 'document', 400, latency)
+        return Response(
+            {'detail': str(e)},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    except Exception as e:
+        latency = int((time.monotonic() - start_time) * 1000)
+        if b2b:
+            _log_api_call(request, '/verify/document', 'document', 500, latency)
+        logger.error(
+            '[VERIFY-DOC] Unhandled exception for user=%s file=%s: %s\n%s',
+            getattr(request.user, 'email', '?'),
+            getattr(doc_file, 'name', '?'),
+            str(e),
+            traceback.format_exc(),
+        )
+        return Response(
+            {'detail': 'An unexpected error occurred. Our team has been notified.'},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
+
+    latency = int((time.monotonic() - start_time) * 1000)
+    cost = get_verification_cost('document')
+    if b2b:
+        _log_api_call(request, '/verify/document', 'document', 200, latency, bits_charged=cost)
+
+    return Response(
+        {
+            'detail': 'Document verification completed.',
             'verification': VerificationSerializer(verification).data,
         },
         status=status.HTTP_200_OK,

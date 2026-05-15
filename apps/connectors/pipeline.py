@@ -145,6 +145,39 @@ def _call_text_ml(content: VerifiableContent) -> tuple[int, dict]:
     return trust_score, result_summary
 
 
+def _call_document_ml(content: VerifiableContent) -> tuple[int, dict]:
+    """Send document bytes to the real document ML service. Returns (trust_score, result_summary)."""
+    ml_url = f'{settings.ML_DOCUMENT_SERVICE_BASE_URL}/verify/document'
+    filename = content.filename or 'document.pdf'
+    mime = content.mime_type or 'application/pdf'
+
+    resp = http_lib.post(
+        ml_url,
+        files={'file': (filename, io.BytesIO(content.payload) if isinstance(content.payload, bytes) else io.BytesIO(content.payload.encode('utf-8')), mime)},
+        data={'document_type': 'general', 'run_ocr': 'true', 'run_forensics': 'true', 'run_qr': 'true'},
+        timeout=120,
+    )
+    resp.raise_for_status()
+    ml = resp.json()
+
+    trust_score = int(ml.get('trust', {}).get('trust_score', 50))
+    result_summary = {
+        'original_filename': filename,
+        'mime_type': mime,
+        'ml_verification_id': ml.get('verification_id'),
+        'status': ml.get('status', ''),
+        'processing_time_ms': ml.get('processing_time_ms'),
+        'fields': ml.get('fields', {}),
+        'content_risk': ml.get('content_risk', {}),
+        'forensics': ml.get('forensics', {}),
+        'qr_analysis': ml.get('qr_analysis', {}),
+        'trust': ml.get('trust', {}),
+        'risk_flags': ml.get('risk_flags', []),
+        'warnings': ml.get('warnings', []),
+    }
+    return trust_score, result_summary
+
+
 def _call_mock_ml(content: VerifiableContent, user_email: str) -> tuple[int, dict]:
     """Fallback mock for modalities without a real ML endpoint yet."""
     from apps.verifications.mock_ml import generate_mock_ml_response
@@ -239,8 +272,10 @@ def _run_verification_inline(
             trust_score, result_summary = _call_image_ml(content, user_email)
         elif modality == Verification.Modality.TEXT:
             trust_score, result_summary = _call_text_ml(content)
+        elif modality == Verification.Modality.DOCUMENT:
+            trust_score, result_summary = _call_document_ml(content)
         else:
-            # Document / audio / video — mock until general ML endpoint exists
+            # Audio / video — mock until ML endpoints exist
             trust_score, result_summary = _call_mock_ml(content, user_email)
 
         logger.info('[ML] result verification=%s score=%s', verification.id, trust_score)

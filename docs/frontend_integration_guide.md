@@ -633,10 +633,146 @@ const verifyText = async (text, sourceUrl = '', context = '') => {
 
 ---
 
+### Direct Document Verification
+
+`POST /api/verifications/verify/document/` — **Requires auth. Content-Type: `multipart/form-data`.**
+
+Submit a document (PDF, image) for authenticity analysis, field extraction, forensic tampering detection, QR code scanning, and LLM-powered content risk assessment. Returns the full AI analysis inline. Costs **3 bits** on success.
+
+> [!TIP]
+> Document verification combines multiple analysis modules: OCR text extraction, visual forensics (tamper detection), QR/barcode scanning, and LLM-based semantic analysis. You can disable individual modules to reduce processing time.
+
+**Request (multipart/form-data):**
+
+| Field | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `file` | File | **Yes** | — | PDF, PNG, JPG, or JPEG. Max 20 MB. |
+| `label` | String | No | `""` | User-provided identifier for tracking |
+| `document_type` | String | No | `"general"` | Type hint: `"general"`, `"invoice"`, `"id_card"`, `"receipt"`, etc. |
+| `run_ocr` | Boolean | No | `true` | Extract text via OCR |
+| `run_forensics` | Boolean | No | `true` | Run visual tampering/forgery detection |
+| `run_qr` | Boolean | No | `true` | Scan for QR codes and barcodes |
+| `run_live_qr_check` | Boolean | No | `false` | Verify QR code URLs with a live HTTP check |
+| `run_llm_analysis` | Boolean | No | `true` | Deep semantic analysis via LLM |
+| `max_pages` | Integer | No | `5` | Max pages to process (multi-page PDFs). Clamped to 1–20. |
+
+**Response (200):**
+```json
+{
+  "detail": "Document verification completed.",
+  "verification": {
+    "id": "uuid",
+    "modality": "document",
+    "status": "completed",
+    "trust_score": 85,
+    "verdict": "authentic",
+    "bits_charged": 3,
+    "result_summary": {
+      "original_filename": "invoice_q4.pdf",
+      "document_type": "invoice",
+      "trust": {
+        "trust_score": 85,
+        "risk_score": 0.15,
+        "risk_level": "LOW",
+        "decision": "APPROVE"
+      },
+      "fields": {
+        "document_type": "invoice",
+        "extracted_fields": {
+          "invoice_number": "INV-1029",
+          "total_amount": "$1,200.00"
+        },
+        "field_confidence": 0.95
+      },
+      "content_risk": {
+        "fraud_risk_score": 0.1,
+        "suspicious_claims": [],
+        "summary": "No high-risk content detected."
+      },
+      "forensics": {
+        "visual_tampering_risk_score": 0.05,
+        "suspicious_regions": []
+      },
+      "qr_analysis": {
+        "qr_found": true,
+        "items": [
+          {
+            "data": "https://example.com/verify",
+            "live_verification": {
+              "eligible": true,
+              "status_code": 200,
+              "risk_score": 0.0
+            }
+          }
+        ]
+      },
+      "risk_flags": [],
+      "warnings": []
+    },
+    "created_at": "2026-05-15T14:00:00Z",
+    "completed_at": "2026-05-15T14:00:05Z"
+  }
+}
+```
+
+**Key fields for the UI:**
+
+| Field | What to display |
+|---|---|
+| `trust.decision` | Primary routing: `"APPROVE"` / `"REVIEW"` / `"REJECT"` |
+| `trust.trust_score` | Trust gauge (0–100) |
+| `trust.risk_level` | Risk badge: `"LOW"` / `"MEDIUM"` / `"HIGH"` |
+| `fields.extracted_fields` | Auto-populated document data (invoice number, amounts, etc.) |
+| `content_risk.fraud_risk_score` | Fraud likelihood (0.0–1.0) |
+| `forensics.visual_tampering_risk_score` | Tampering likelihood (0.0–1.0) |
+| `qr_analysis.items` | Decoded QR/barcode data + live verification results |
+| `risk_flags` | Bullet list of anomalies (e.g. "Metadata wiped", "Inconsistent fonts") |
+
+**Error responses:**
+- **400** — Unsupported file type, file too large (>20 MB), or ML service error
+- **402** — Insufficient bits: `{ "detail": "Insufficient bits for document verification.", "required": 3, "available": 0 }`
+
+**Frontend implementation (JavaScript):**
+```javascript
+const verifyDocument = async (file, documentType = 'general', options = {}) => {
+  const formData = new FormData();
+  formData.append('file', file);
+  formData.append('document_type', documentType);
+
+  // Optional analysis toggles
+  if (options.label) formData.append('label', options.label);
+  if (options.run_ocr !== undefined) formData.append('run_ocr', options.run_ocr);
+  if (options.run_forensics !== undefined) formData.append('run_forensics', options.run_forensics);
+  if (options.run_qr !== undefined) formData.append('run_qr', options.run_qr);
+  if (options.run_live_qr_check !== undefined) formData.append('run_live_qr_check', options.run_live_qr_check);
+  if (options.run_llm_analysis !== undefined) formData.append('run_llm_analysis', options.run_llm_analysis);
+  if (options.max_pages) formData.append('max_pages', options.max_pages);
+
+  const response = await fetch('/api/verifications/verify/document/', {
+    method: 'POST',
+    credentials: 'include',
+    body: formData,  // No Content-Type header — browser sets multipart boundary
+  });
+
+  if (response.status === 402) {
+    const err = await response.json();
+    alert(`Need ${err.required} bits, you have ${err.available}.`);
+    return null;
+  }
+
+  return response.json();
+};
+```
+
+> [!IMPORTANT]
+> Document analysis with LLM and OCR can take 2–10 seconds depending on page count. Set appropriate loading states in your UI. The `max_pages` parameter helps control processing time for large PDFs.
+
+---
+
 ### B2B API Key Usage (Separate from B2C)
 
 > [!IMPORTANT]
-> When the same verification endpoints (`/verify/image/`, `/verify/text/`) are called with an API key instead of a session cookie, the backend automatically routes to the **organization's wallet** instead of the user's personal wallet. B2B and B2C usage are tracked and billed completely separately.
+> When the same verification endpoints (`/verify/image/`, `/verify/text/`, `/verify/document/`) are called with an API key instead of a session cookie, the backend automatically routes to the **organization's wallet** instead of the user's personal wallet. B2B and B2C usage are tracked and billed completely separately.
 
 **How it works:**
 
@@ -1147,6 +1283,7 @@ or
 | `DELETE` | `/api/verifications/<id>/` | Session or Bearer | Soft-delete a single verification |
 | `POST` | `/api/verifications/verify/image/` | Session or Bearer | Direct image verification (2 bits from user or org wallet) |
 | `POST` | `/api/verifications/verify/text/` | Session or Bearer | Direct text verification (1 bit from user or org wallet) |
+| `POST` | `/api/verifications/verify/document/` | Session or Bearer | Direct document verification (3 bits from user or org wallet) |
 | `POST` | `/api/webhooks/squad/` | HMAC | Squad payment webhook (server-to-server) |
 | `GET` | `/api/schema/` | Public | OpenAPI 3.0 JSON schema |
 | `GET` | `/api/docs/` | Public | Swagger UI (interactive) |

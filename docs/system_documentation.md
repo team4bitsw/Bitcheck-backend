@@ -184,10 +184,11 @@ def debit_wallet(wallet_id, amount, ...):
 | `services.py` | `submit_b2c_verification()`, `submit_b2b_verification()`, `complete_verification()`, `fail_verification()` — orchestrates the full lifecycle |
 | `image_service.py` | `verify_image_direct()` — direct image upload → hash cache check → ML image service → result |
 | `text_service.py` | `verify_text_direct()` — direct text submission → ML text service → result |
+| `document_service.py` | `verify_document_direct()` — direct document upload → ML document service → result (field extraction, forensics, QR, LLM analysis) |
 | `mock_ml.py` | Mock image ML response when ML is down (`ML_MOCK_RESPONSE=True`) |
 | `mock_text_ml.py` | Mock text ML response when ML is down (`ML_MOCK_RESPONSE=True`) |
 | `tasks.py` | `process_verification` Celery task — async flow (not used for direct endpoints) |
-| `views.py` | HTTP endpoints: `verify_image_view()`, `verify_text_view()`, list, delete |
+| `views.py` | HTTP endpoints: `verify_image_view()`, `verify_text_view()`, `verify_document_view()`, list, delete |
 
 **ML Services (both hosted on HF Spaces):**
 
@@ -195,6 +196,7 @@ def debit_wallet(wallet_id, amount, ...):
 |---|---|---|---|
 | **Image** | `https://jaykay73-bitcheck-image.hf.space` | `POST /verify/image` | `file` (multipart, required) + `user_email` (optional) |
 | **Text** | `https://jaykay73-bitcheck-text.hf.space` | `POST /verify/text` | JSON: `text` + optional `source_url`, `context`, check flags |
+| **Document** | `https://jaykay73-bitcheck-document.hf.space` | `POST /verify/document` | `file` (multipart) + `document_type`, `run_ocr`, `run_forensics`, `run_qr`, `run_live_qr_check`, `run_llm_analysis`, `max_pages` |
 
 **Direct image flow (`image_service.py`) — with hash-based caching + B2B/B2C routing:**
 ```
@@ -288,6 +290,53 @@ Return full verification with text analysis
 | `trust.decision` (`approve`/`review`/`block_or_manual_review`) | stored in `result_summary.trust.decision` |
 | `ai_likelihood.confidence` (0–1) | stored in `result_summary.ai_likelihood.confidence` |
 | `risk_flags` (array of strings) | stored in `result_summary.risk_flags` |
+
+**Document ML response field mapping:**
+
+| ML field | Our field |
+|---|---|
+| `trust.trust_score` (int, e.g., 85) | `trust_score` |
+| `trust.risk_level` (`LOW`/`MEDIUM`/`HIGH`) | stored in `result_summary.trust.risk_level` |
+| `trust.decision` (`APPROVE`/`REVIEW`/`REJECT`) | stored in `result_summary.trust.decision` |
+| `trust.risk_score` (0.0–1.0) | stored in `result_summary.trust.risk_score` |
+| `fields.extracted_fields` (dict) | stored in `result_summary.fields.extracted_fields` |
+| `content_risk.fraud_risk_score` (0.0–1.0) | stored in `result_summary.content_risk.fraud_risk_score` |
+| `forensics.visual_tampering_risk_score` (0.0–1.0) | stored in `result_summary.forensics.visual_tampering_risk_score` |
+| `qr_analysis.items` (array) | stored in `result_summary.qr_analysis.items` |
+| `risk_flags` (array of strings) | stored in `result_summary.risk_flags` |
+| `warnings` (array of strings) | stored in `result_summary.warnings` |
+
+**Direct document flow (`document_service.py`) — with B2B/B2C routing:**
+```
+POST /api/verifications/verify/document/  (multipart/form-data: file + options)
+  Auth: Session cookie (B2C) OR Authorization: Bearer bk_... (B2B)
+        ↓
+verify_document_view():
+  - Parse file + label + document_type + analysis toggles
+  - Detect auth type: request.auth is ApiKey → B2B, else → B2C
+  - B2B: pass organization + api_key to service
+  - B2C: pass user only
+        ↓
+verify_document_direct(user, doc_file, label, document_type, toggles..., organization?, api_key?):
+  1. Validate file type (.pdf/.jpg/.png) + size (≤20 MB)
+  2. Pre-flight balance check:
+     ├── B2B: get_wallet_for_organization(organization) — org wallet
+     └── B2C: get_wallet_for_user(user) — personal wallet
+  3. Compute SHA-256 hash (chunked 64KB reads, memory-safe)
+  4. Create Verification + VerificationJob rows (status=analyzing)
+     ├── B2B: Verification.organization = org, api_key = key
+     └── B2C: Verification.user = user
+  5. If ML_MOCK_RESPONSE=True → return mock response (no HTTP call)
+  6. Forward to ML: POST {ML_DOCUMENT_SERVICE_BASE_URL}/verify/document
+     - Form data: file, document_type, run_ocr, run_forensics, run_qr,
+                  run_live_qr_check, run_llm_analysis, max_pages
+  7. Map response: trust.trust_score → trust_score, trust.decision → verdict
+  8. complete_verification() → debit correct wallet, store results
+        ↓
+  B2B only: log ApiCall (endpoint, modality, status, latency, bits_charged)
+        ↓
+Return full verification with document analysis
+```
 
 **Mock mode:** Set `ML_MOCK_RESPONSE=True` in `.env` when ML services are down. Returns randomized but realistic results, still creates DB records and debits bits. Mock responses include `result_summary._mock = true`.
 

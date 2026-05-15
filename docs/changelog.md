@@ -2,6 +2,27 @@
 
 Living doc: append a dated section when adding or changing API or account/org behavior.
 
+## 2026-05-15 — Document verification integration
+
+### Added
+
+- **Direct Document Verification**
+  - `POST /api/verifications/verify/document/` — accepts `multipart/form-data` document upload (PDF, PNG, JPG, JPEG, max 20 MB)
+  - New `document_service.py` — validates file type/size, computes SHA256, forwards to ML document service's `/verify/document`, maps full response (trust/risk decision, field extraction, content risk, forensics, QR analysis)
+  - Cost: 3 bits per document verification
+  - Analysis toggles: `document_type`, `run_ocr`, `run_forensics`, `run_qr`, `run_live_qr_check`, `run_llm_analysis`, `max_pages`
+  - Supports B2B (API key → org wallet) and B2C (session → user wallet)
+
+- **Connector pipeline: document routing**
+  - `pipeline.py` now routes `document` modality to the real ML document service (previously fell through to mock)
+  - Documents from Telegram (PDFs) and Gmail (attachments) now get full analysis
+
+- **ML service setting:** `ML_DOCUMENT_SERVICE_BASE_URL` (default: `https://jaykay73-bitcheck-document.hf.space`)
+
+**Files touched:** `apps/verifications/document_service.py` (new), `apps/verifications/views.py`, `apps/verifications/urls.py`, `apps/connectors/pipeline.py`, `config/settings.py`
+
+---
+
 ## 2026-05-15 -- Forgot / reset password
 
 ### Added

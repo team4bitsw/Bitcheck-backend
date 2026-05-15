@@ -379,6 +379,7 @@ BILLING_INCOMPLETE_CHECKOUT_TTL_HOURS = config(
 ML_SERVICE_BASE_URL = config('ML_SERVICE_BASE_URL', default='')
 ML_IMAGE_SERVICE_BASE_URL = config('ML_IMAGE_SERVICE_BASE_URL', default='https://jaykay73-bitcheck-image.hf.space')
 ML_TEXT_SERVICE_BASE_URL = config('ML_TEXT_SERVICE_BASE_URL', default='https://jaykay73-bitcheck-text.hf.space')
+ML_DOCUMENT_SERVICE_BASE_URL = config('ML_DOCUMENT_SERVICE_BASE_URL', default='https://jaykay73-bitcheck-document.hf.space')
 ML_MOCK_RESPONSE = config('ML_MOCK_RESPONSE', default='False', cast=bool)
 
 
