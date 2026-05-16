@@ -13,9 +13,13 @@ Flow:
 
 ML API contract (BitCheck Image Verification API):
   - Endpoint: POST {ML_IMAGE_SERVICE_BASE_URL}/verify/image
-  - Form fields: user_email (optional), file (required)
+  - Form fields: file (required), user_email, run_explainability, run_ocr,
+                  run_forensics, run_c2pa, threshold
   - Max upload: 12 MB
   - Accepted: JPG, JPEG, PNG, WEBP
+  - Response: VerificationReport with trust.trust_score_out_of_100,
+              trust.final_decision, classifier, filename_analysis,
+              visible_watermark_ocr, visible_watermark_template, etc.
 """
 
 import hashlib
@@ -78,13 +82,29 @@ def _map_ml_response(ml_result, label, image_file, file_hash):
     """
     Map the ML service response to our result_summary format.
 
-    The ML API returns fields like trust.score and model_result.label/confidence
-    which we normalize into our internal schema.
+    The ML API returns fields like trust.trust_score_out_of_100 and
+    classifier.label/confidence which we normalize into our internal schema.
+    Includes backwards compat: falls back to trust.score if trust_score_out_of_100
+    is missing (older ML service versions).
     """
     trust_data = ml_result.get('trust', {})
-    # ML returns trust.score (float), we store as int trust_score
-    trust_score_raw = trust_data.get('score', 50)
+    # New API: trust.trust_score_out_of_100 (int)
+    # Old API fallback: trust.score (float)
+    trust_score_raw = trust_data.get('trust_score_out_of_100') or trust_data.get('score', 50)
     trust_score = int(round(trust_score_raw))
+
+    # Make explainability/forensic image URLs absolute
+    ml_base = settings.ML_IMAGE_SERVICE_BASE_URL
+    explainability = ml_result.get('explainability') or {}
+    if explainability.get('heatmap_url'):
+        explainability['heatmap_url'] = _make_absolute_url(explainability['heatmap_url'], ml_base)
+    if explainability.get('boxed_image_url'):
+        explainability['boxed_image_url'] = _make_absolute_url(explainability['boxed_image_url'], ml_base)
+
+    forensics = ml_result.get('forensics') or {}
+    for key in ('noise_map_url', 'ela_url', 'annotated_image_url'):
+        if forensics.get(key):
+            forensics[key] = _make_absolute_url(forensics[key], ml_base)
 
     result_summary = {
         'label': label or '',
@@ -94,18 +114,33 @@ def _map_ml_response(ml_result, label, image_file, file_hash):
         'ml_verification_id': ml_result.get('verification_id'),
         'user_email': ml_result.get('user_email', ''),
         'input': ml_result.get('input', {}),
-        'model_result': ml_result.get('model_result', {}),
+        'filename_analysis': ml_result.get('filename_analysis', {}),
+        'classifier': ml_result.get('classifier', {}),
+        # Backwards compat: keep model_result if classifier is absent
+        'model_result': ml_result.get('classifier') or ml_result.get('model_result', {}),
         'metadata': ml_result.get('metadata', {}),
         'provenance': ml_result.get('provenance', {}),
-        'visible_watermark': ml_result.get('visible_watermark', {}),
-        'forensics': ml_result.get('forensics', {}),
-        'explainability': ml_result.get('explainability', {}),
+        'visible_watermark_ocr': ml_result.get('visible_watermark_ocr', {}),
+        'visible_watermark_template': ml_result.get('visible_watermark_template', {}),
+        # Backwards compat: keep visible_watermark if new fields are absent
+        'visible_watermark': ml_result.get('visible_watermark_ocr') or ml_result.get('visible_watermark', {}),
+        'forensics': forensics,
+        'explainability': explainability,
         'trust': trust_data,
         'risk_flags': ml_result.get('risk_flags', []),
         'limitations': ml_result.get('limitations', []),
     }
 
     return trust_score, result_summary
+
+
+def _make_absolute_url(path: str, base: str) -> str:
+    """Turn a relative ML-service path into a full URL."""
+    if not path:
+        return path
+    if path.startswith('http://') or path.startswith('https://'):
+        return path
+    return base.rstrip('/') + ('/' if not path.startswith('/') else '') + path
 
 
 def _check_cache(file_hash):
@@ -205,6 +240,11 @@ def verify_image_direct(
     user,
     image_file,
     label=None,
+    run_explainability=True,
+    run_ocr=True,
+    run_forensics=True,
+    run_c2pa=True,
+    threshold=None,
     organization=None,
     api_key=None,
 ):
@@ -219,6 +259,11 @@ def verify_image_direct(
         user:               The authenticated User.
         image_file:         Django UploadedFile (from request.FILES).
         label:              Optional user-provided label/identifier for this check.
+        run_explainability: Generate Grad-CAM heatmap (default True).
+        run_ocr:            Run OCR for AI watermark detection (default True).
+        run_forensics:      Run forensic analysis (default True).
+        run_c2pa:           Analyze C2PA provenance (default True).
+        threshold:          Override classifier confidence threshold (optional).
         organization:       If provided, this is a B2B call — use org wallet.
         api_key:            If provided, the ApiKey used for this B2B call.
 
@@ -371,13 +416,19 @@ def verify_image_direct(
 
     image_file.seek(0)
 
-    # ML API accepts: file (required) + user_email (optional)
+    # ML API accepts: file (required) + user_email + analysis toggles
     files = {
         'file': (image_file.name, image_file, content_type),
     }
     form_data = {
         'user_email': user.email,
+        'run_explainability': str(run_explainability).lower(),
+        'run_ocr': str(run_ocr).lower(),
+        'run_forensics': str(run_forensics).lower(),
+        'run_c2pa': str(run_c2pa).lower(),
     }
+    if threshold is not None:
+        form_data['threshold'] = str(threshold)
 
     print(f'[IMAGE-VERIFY] Sending to ML: {ml_url} (user_email={user.email})')
 

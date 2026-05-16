@@ -2,6 +2,25 @@
 
 Living doc: append a dated section when adding or changing API or account/org behavior.
 
+## 2026-05-16 — Image ML API v2 integration
+
+### Changed
+
+- **Image verification: new ML API contract**
+  - Trust score: now reads `trust.trust_score_out_of_100` (int), falls back to `trust.score` (float) for backwards compat
+  - Classifier: response field renamed from `model_result` → `classifier` (both stored for backwards compat via `result_summary.model_result`)
+  - Trust decision: `trust.final_decision` replaces `trust.label`
+  - New response sections: `filename_analysis`, `visible_watermark_ocr`, `visible_watermark_template`
+  - Explainability/forensic image URLs are now made absolute via `ML_IMAGE_SERVICE_BASE_URL`
+
+- **Analysis toggles forwarded to ML**
+  - `run_explainability`, `run_ocr`, `run_forensics`, `run_c2pa`, `threshold` — accepted as form params, forwarded to ML service
+  - All default to `true` (except `threshold` which is optional)
+
+**Files touched:** `apps/verifications/image_service.py`, `apps/verifications/views.py`, `apps/connectors/pipeline.py`, docs
+
+---
+
 ## 2026-05-15 — Document verification integration
 
 ### Added

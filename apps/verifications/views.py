@@ -176,8 +176,13 @@ def verify_image_view(request):
     B2C: authenticated via session → personal wallet + user ownership
 
     Form fields:
-        file*:   Image file (.jpg, .jpeg, .png, .webp) — max 12 MB
-        label:   Optional user-provided identifier (e.g., "invoice_q4_2026")
+        file*:              Image file (.jpg, .jpeg, .png, .webp) — max 12 MB
+        label:              Optional user-provided identifier (e.g., "invoice_q4_2026")
+        run_explainability: Generate Grad-CAM heatmap (default: true)
+        run_ocr:            Run OCR for AI watermark detection (default: true)
+        run_forensics:      Run forensic analysis (default: true)
+        run_c2pa:           Analyze C2PA provenance (default: true)
+        threshold:          Override classifier confidence threshold (optional float)
     """
     from .image_service import verify_image_direct
 
@@ -195,6 +200,27 @@ def verify_image_view(request):
     # Parse optional label
     label = request.data.get('label', '').strip()
 
+    # Analysis toggles (booleans sent as form strings)
+    def _parse_bool(val, default=True):
+        if isinstance(val, bool):
+            return val
+        if isinstance(val, str):
+            return val.lower() not in ('false', '0', 'no')
+        return default
+
+    run_explainability = _parse_bool(request.data.get('run_explainability', True))
+    run_ocr = _parse_bool(request.data.get('run_ocr', True))
+    run_forensics = _parse_bool(request.data.get('run_forensics', True))
+    run_c2pa = _parse_bool(request.data.get('run_c2pa', True))
+
+    threshold = None
+    raw_threshold = request.data.get('threshold')
+    if raw_threshold is not None:
+        try:
+            threshold = float(raw_threshold)
+        except (TypeError, ValueError):
+            pass
+
     # Determine B2B vs B2C context
     b2b = _is_b2b(request)
     organization = request.auth.organization if b2b else None
@@ -205,6 +231,11 @@ def verify_image_view(request):
             user=request.user,
             image_file=image_file,
             label=label,
+            run_explainability=run_explainability,
+            run_ocr=run_ocr,
+            run_forensics=run_forensics,
+            run_c2pa=run_c2pa,
+            threshold=threshold,
             organization=organization,
             api_key=api_key,
         )

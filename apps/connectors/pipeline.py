@@ -88,27 +88,39 @@ def _call_image_ml(content: VerifiableContent, user_email: str) -> tuple[int, di
     resp.raise_for_status()
     ml = resp.json()
 
-    # Make heatmap / boxed-image URLs absolute so the frontend can load them.
+    # Make heatmap / boxed-image / forensic URLs absolute so the frontend can load them.
     explainability = ml.get('explainability') or {}
     if explainability.get('heatmap_url'):
         explainability['heatmap_url'] = _make_absolute_url(explainability['heatmap_url'], ml_base)
     if explainability.get('boxed_image_url'):
         explainability['boxed_image_url'] = _make_absolute_url(explainability['boxed_image_url'], ml_base)
 
-    trust_score = int(round(ml.get('trust', {}).get('score', 50)))
+    forensics = ml.get('forensics') or {}
+    for key in ('noise_map_url', 'ela_url', 'annotated_image_url'):
+        if forensics.get(key):
+            forensics[key] = _make_absolute_url(forensics[key], ml_base)
+
+    # New API: trust_score_out_of_100; old fallback: score
+    trust_data = ml.get('trust', {})
+    trust_score = int(round(trust_data.get('trust_score_out_of_100') or trust_data.get('score', 50)))
+
     result_summary = {
         'original_filename': filename,
         'mime_type': mime,
         'ml_verification_id': ml.get('verification_id'),
         'user_email': ml.get('user_email', ''),
         'input': ml.get('input', {}),
-        'model_result': ml.get('model_result', {}),
+        'filename_analysis': ml.get('filename_analysis', {}),
+        'classifier': ml.get('classifier', {}),
+        'model_result': ml.get('classifier') or ml.get('model_result', {}),
         'metadata': ml.get('metadata', {}),
         'provenance': ml.get('provenance', {}),
-        'visible_watermark': ml.get('visible_watermark', {}),
-        'forensics': ml.get('forensics', {}),
+        'visible_watermark_ocr': ml.get('visible_watermark_ocr', {}),
+        'visible_watermark_template': ml.get('visible_watermark_template', {}),
+        'visible_watermark': ml.get('visible_watermark_ocr') or ml.get('visible_watermark', {}),
+        'forensics': forensics,
         'explainability': explainability,
-        'trust': ml.get('trust', {}),
+        'trust': trust_data,
         'risk_flags': ml.get('risk_flags', []),
         'limitations': ml.get('limitations', []),
     }

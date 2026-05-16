@@ -194,22 +194,23 @@ def debit_wallet(wallet_id, amount, ...):
 
 | Service | Live URL | Endpoint | Input |
 |---|---|---|---|
-| **Image** | `https://jaykay73-bitcheck-image.hf.space` | `POST /verify/image` | `file` (multipart, required) + `user_email` (optional) |
+| **Image** | `https://jaykay73-bitcheck-image.hf.space` | `POST /verify/image` | `file` (multipart, required) + `user_email`, `run_explainability`, `run_ocr`, `run_forensics`, `run_c2pa`, `threshold` |
 | **Text** | `https://jaykay73-bitcheck-text.hf.space` | `POST /verify/text` | JSON: `text` + optional `source_url`, `context`, check flags |
 | **Document** | `https://jaykay73-bitcheck-document.hf.space` | `POST /verify/document` | `file` (multipart) + `document_type`, `run_ocr`, `run_forensics`, `run_qr`, `run_live_qr_check`, `run_llm_analysis`, `max_pages` |
 
 **Direct image flow (`image_service.py`) — with hash-based caching + B2B/B2C routing:**
 ```
-POST /api/verifications/verify/image/  (multipart/form-data: file + optional label)
+POST /api/verifications/verify/image/  (multipart/form-data: file + toggles)
   Auth: Session cookie (B2C) OR Authorization: Bearer bk_... (B2B)
         ↓
 verify_image_view():
-  - Parse file + label
+  - Parse file + label + analysis toggles (run_explainability, run_ocr,
+    run_forensics, run_c2pa, threshold)
   - Detect auth type: request.auth is ApiKey → B2B, else → B2C
   - B2B: pass organization + api_key to service
   - B2C: pass user only
         ↓
-verify_image_direct(user, image_file, label, organization?, api_key?):
+verify_image_direct(user, image_file, label, toggles..., organization?, api_key?):
   1. Validate file type (.jpg/.png/.webp) + size (≤12 MB)
   2. Pre-flight balance check:
      ├── B2B: get_wallet_for_organization(organization) — org wallet
@@ -224,8 +225,11 @@ verify_image_direct(user, image_file, label, organization?, api_key?):
      └── B2C: Verification.user = user
   6. If ML_MOCK_RESPONSE=True → return mock response (no HTTP call)
   7. Forward to ML: POST {ML_IMAGE_SERVICE_BASE_URL}/verify/image
-     - Form data: user_email=user.email, file=image
-  8. Map response: trust.score → trust_score, model_result.label → verdict
+     - Form data: user_email, file, run_explainability, run_ocr,
+                  run_forensics, run_c2pa, threshold
+  8. Map response: trust.trust_score_out_of_100 → trust_score,
+                   classifier.label → model decision
+     Make explainability/forensics URLs absolute
   9. Save (hash, trust_score, result_summary, ml_response_raw) → cache
  10. complete_verification() → debit correct wallet, store results
         ↓
@@ -276,10 +280,15 @@ Return full verification with text analysis
 
 | ML field | Our field |
 |---|---|
-| `trust.score` (float, e.g., 72.5) | `trust_score` (int, e.g., 73) |
-| `trust.label` (`low_risk`/`moderate_risk`/`high_risk`) | stored in `result_summary.trust.label` |
-| `model_result.label` (`real`/`ai_generated`) | stored in `result_summary.model_result.label` |
-| `model_result.confidence` (0–1) | stored in `result_summary.model_result.confidence` |
+| `trust.trust_score_out_of_100` (int, e.g., 31) | `trust_score` (int, e.g., 31) — fallback: `trust.score` for older API |
+| `trust.final_decision` (`real`/`ai_generated`) | stored in `result_summary.trust.final_decision` |
+| `classifier.label` (`real`/`ai_generated`) | stored in `result_summary.classifier.label` (+ backwards-compat `model_result`) |
+| `classifier.confidence` (0–1) | stored in `result_summary.classifier.confidence` |
+| `filename_analysis` (dict) | stored in `result_summary.filename_analysis` |
+| `visible_watermark_ocr` (dict) | stored in `result_summary.visible_watermark_ocr` |
+| `visible_watermark_template` (dict) | stored in `result_summary.visible_watermark_template` |
+| `explainability.heatmap_url` (relative path) | made absolute via `ML_IMAGE_SERVICE_BASE_URL` |
+| `forensics.*_url` (relative paths) | made absolute via `ML_IMAGE_SERVICE_BASE_URL` |
 
 **Text ML response field mapping:**
 
