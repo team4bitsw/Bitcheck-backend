@@ -30,6 +30,7 @@ from django.db import transaction
 from django.db.models import F
 from django.utils import timezone
 
+from .ml_urls import normalize_ml_media_url
 from .models import Verification, VerificationJob, ImageVerificationCache
 from .services import (
     get_verification_cost,
@@ -97,14 +98,22 @@ def _map_ml_response(ml_result, label, image_file, file_hash):
     ml_base = settings.ML_IMAGE_SERVICE_BASE_URL
     explainability = ml_result.get('explainability') or {}
     if explainability.get('heatmap_url'):
-        explainability['heatmap_url'] = _make_absolute_url(explainability['heatmap_url'], ml_base)
+        explainability['heatmap_url'] = normalize_ml_media_url(
+            explainability['heatmap_url'], ml_base,
+        )
+    if explainability.get('overlay_url'):
+        explainability['overlay_url'] = normalize_ml_media_url(
+            explainability['overlay_url'], ml_base,
+        )
     if explainability.get('boxed_image_url'):
-        explainability['boxed_image_url'] = _make_absolute_url(explainability['boxed_image_url'], ml_base)
+        explainability['boxed_image_url'] = normalize_ml_media_url(
+            explainability['boxed_image_url'], ml_base,
+        )
 
     forensics = ml_result.get('forensics') or {}
     for key in ('noise_map_url', 'ela_url', 'annotated_image_url'):
         if forensics.get(key):
-            forensics[key] = _make_absolute_url(forensics[key], ml_base)
+            forensics[key] = normalize_ml_media_url(forensics[key], ml_base)
 
     result_summary = {
         'label': label or '',
@@ -132,15 +141,6 @@ def _map_ml_response(ml_result, label, image_file, file_hash):
     }
 
     return trust_score, result_summary
-
-
-def _make_absolute_url(path: str, base: str) -> str:
-    """Turn a relative ML-service path into a full URL."""
-    if not path:
-        return path
-    if path.startswith('http://') or path.startswith('https://'):
-        return path
-    return base.rstrip('/') + ('/' if not path.startswith('/') else '') + path
 
 
 def _check_cache(file_hash):

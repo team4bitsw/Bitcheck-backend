@@ -24,6 +24,7 @@ from apps.connectors.base import InstallContext, ParsedEvent
 from apps.connectors.exceptions import QuotaExceeded
 from apps.connectors.models import ConnectorEvent
 from apps.connectors.registry import get as get_adapter
+from apps.verifications.ml_urls import normalize_ml_media_url
 from apps.verifications.models import Verification, VerificationJob
 from apps.verifications.services import (
     InsufficientBitsError,
@@ -63,14 +64,6 @@ def _enforce_quota(install: ConnectorInstall, required_bits: int) -> None:
 # Per-modality ML callers (mirror image_service.py / text_service.py)
 # ---------------------------------------------------------------------------
 
-def _make_absolute_url(path: str, base: str) -> str:
-    """Turn a relative ML-service path into a full URL."""
-    if not path:
-        return path
-    if path.startswith('http://') or path.startswith('https://'):
-        return path
-    return base.rstrip('/') + ('/' if not path.startswith('/') else '') + path
-
 
 def _call_image_ml(content: VerifiableContent, user_email: str) -> tuple[int, dict]:
     """Send image bytes to the real image ML service. Returns (trust_score, result_summary)."""
@@ -91,14 +84,22 @@ def _call_image_ml(content: VerifiableContent, user_email: str) -> tuple[int, di
     # Make heatmap / boxed-image / forensic URLs absolute so the frontend can load them.
     explainability = ml.get('explainability') or {}
     if explainability.get('heatmap_url'):
-        explainability['heatmap_url'] = _make_absolute_url(explainability['heatmap_url'], ml_base)
+        explainability['heatmap_url'] = normalize_ml_media_url(
+            explainability['heatmap_url'], ml_base,
+        )
+    if explainability.get('overlay_url'):
+        explainability['overlay_url'] = normalize_ml_media_url(
+            explainability['overlay_url'], ml_base,
+        )
     if explainability.get('boxed_image_url'):
-        explainability['boxed_image_url'] = _make_absolute_url(explainability['boxed_image_url'], ml_base)
+        explainability['boxed_image_url'] = normalize_ml_media_url(
+            explainability['boxed_image_url'], ml_base,
+        )
 
     forensics = ml.get('forensics') or {}
     for key in ('noise_map_url', 'ela_url', 'annotated_image_url'):
         if forensics.get(key):
-            forensics[key] = _make_absolute_url(forensics[key], ml_base)
+            forensics[key] = normalize_ml_media_url(forensics[key], ml_base)
 
     # New API: trust_score_out_of_100; old fallback: score
     trust_data = ml.get('trust', {})
