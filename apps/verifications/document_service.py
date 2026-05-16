@@ -38,6 +38,43 @@ from apps.bits.services import check_balance, get_wallet_for_user, get_wallet_fo
 
 logger = logging.getLogger(__name__)
 
+
+def _attach_r2_if_completed_document(verification, user, doc_file):
+    """After successful verification, store bytes in object storage and link uploaded_file."""
+    if verification.status != Verification.Status.COMPLETED:
+        return
+    if not getattr(settings, 'AWS_ACCESS_KEY_ID', '') or \
+       not getattr(settings, 'AWS_SECRET_ACCESS_KEY', ''):
+        logger.debug('[DOC-R2] Object storage not configured — skipping upload')
+        return
+    try:
+        from .storage_upload import upload_bytes_for_connector_owner
+
+        doc_file.seek(0)
+        data = doc_file.read()
+        doc_file.seek(0)
+        mime = doc_file.content_type or 'application/octet-stream'
+        uploaded_file = upload_bytes_for_connector_owner(
+            user=user,
+            organization=None,
+            data=data,
+            original_filename=doc_file.name,
+            mime_type=mime,
+        )
+        verification.uploaded_file = uploaded_file
+        verification.save(update_fields=['uploaded_file'])
+        logger.info(
+            '[DOC-R2] Stored document %s as %s',
+            doc_file.name,
+            uploaded_file.storage_key,
+        )
+    except Exception as exc:
+        logger.warning(
+            '[DOC-R2] Upload failed, continuing without preview: %s',
+            exc,
+        )
+
+
 # Allowed document MIME types
 ALLOWED_DOCUMENT_TYPES = {
     'application/pdf',
@@ -287,6 +324,8 @@ def verify_document_direct(
             ml_response_raw=ml_result,
         )
 
+        _attach_r2_if_completed_document(verification, user, doc_file)
+
         print(f'[DOC-VERIFY] Mock verification {verification.id} completed: '
               f'score={trust_score}, verdict={verification.verdict}')
 
@@ -345,6 +384,8 @@ def verify_document_direct(
                 result_summary=result_summary,
                 ml_response_raw=ml_result,
             )
+
+            _attach_r2_if_completed_document(verification, user, doc_file)
 
             print(f'[DOC-VERIFY] Verification {verification.id} completed: '
                   f'score={trust_score}, verdict={verification.verdict}')

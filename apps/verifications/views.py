@@ -111,10 +111,14 @@ def verification_list_view(request):
         })
 
     # GET — list
-    verifications = Verification.objects.filter(
-        **base_filter,
-        deleted_at__isnull=True,
-    ).order_by('-created_at')[:50]
+    verifications = (
+        Verification.objects.filter(
+            **base_filter,
+            deleted_at__isnull=True,
+        )
+        .select_related('uploaded_file')
+        .order_by('-created_at')[:50]
+    )
 
     serializer = VerificationListSerializer(verifications, many=True)
     return Response({'verifications': serializer.data})

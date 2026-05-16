@@ -13,6 +13,16 @@ class UploadedFileSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
 
+def verification_file_presigned_url(obj: Verification) -> str | None:
+    """Presigned GET URL for the verification's stored file, if any."""
+    if not obj.uploaded_file_id:
+        return None
+    uf = obj.uploaded_file
+    if uf is None:
+        return None
+    return _generate_r2_presigned_url(uf)
+
+
 def _generate_r2_presigned_url(uploaded_file, expiry: int = 3600) -> str | None:
     """
     Generate a short-lived presigned URL for an R2-stored file.
@@ -73,22 +83,21 @@ class VerificationSerializer(serializers.ModelSerializer):
         return ''
 
     def get_file_url(self, obj):
-        if not obj.uploaded_file:
-            return None
-        return _generate_r2_presigned_url(obj.uploaded_file)
+        return verification_file_presigned_url(obj)
 
 
 class VerificationListSerializer(serializers.ModelSerializer):
     """Compact list view (no result_summary to save bandwidth)."""
 
     original_filename = serializers.SerializerMethodField()
+    file_url = serializers.SerializerMethodField()
 
     class Meta:
         model = Verification
         fields = [
             'id', 'modality', 'status',
             'trust_score', 'verdict', 'bits_charged',
-            'original_filename',
+            'original_filename', 'file_url',
             'created_at', 'completed_at',
         ]
         read_only_fields = fields
@@ -97,4 +106,7 @@ class VerificationListSerializer(serializers.ModelSerializer):
         if obj.result_summary and isinstance(obj.result_summary, dict):
             return obj.result_summary.get('original_filename', '')
         return ''
+
+    def get_file_url(self, obj):
+        return verification_file_presigned_url(obj)
 
