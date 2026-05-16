@@ -2,6 +2,19 @@
 
 Living doc: append a dated section when adding or changing API or account/org behavior.
 
+## 2026-05-16 — Connector install detail + Telegram live status
+
+### Added
+
+- **`GET /api/connectors/installs/<id>/`** — returns full install data + `connection_status` object
+  - For **Telegram** installs: calls `getWebhookInfo` to report live webhook health — `connected` (bool), `webhook_url`, `pending_update_count`, `telegram_last_error_date`, `telegram_last_error_message`, `max_connections`, `ip_address`
+  - For other connectors: returns DB-level status — `is_active`, `last_event_at`, `last_error_at`, `last_error_message`
+  - Gracefully handles Telegram API failures (returns `connected: false` + error message)
+
+**Files touched:** `apps/connectors/views.py`
+
+---
+
 ## 2026-05-16 — Image ML API v2 integration
 
 ### Changed

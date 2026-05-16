@@ -443,7 +443,7 @@ submit_b2c_verification() or submit_b2b_verification()
 | `GET` | `/api/connectors/types/` | List available connector types |
 | `POST` | `/api/connectors/types/<slug>/interest/` | Express interest in a coming-soon connector |
 | `GET/POST` | `/api/connectors/installs/` | List/create installs |
-| `GET/PATCH/DELETE` | `/api/connectors/installs/<uuid>/` | Manage a specific install |
+| `GET/PATCH/DELETE` | `/api/connectors/installs/<uuid>/` | Get install (with live status) / Manage |
 | `GET` | `/api/connectors/installs/<uuid>/events/` | List events for an install |
 | `POST` | `/api/connectors/install/<slug>/begin/` | Start OAuth/install flow |
 | `POST` | `/api/connectors/install/<slug>/complete/` | Complete install (non-OAuth) |
