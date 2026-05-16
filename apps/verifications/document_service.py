@@ -26,6 +26,7 @@ from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
 
+from .ml_trust_score import extract_ml_trust_score
 from .models import Verification, VerificationJob
 from .services import (
     get_verification_cost,
@@ -130,9 +131,7 @@ def _map_ml_response(ml_result, label, doc_file, file_hash, document_type):
     content_risk, forensics, qr_analysis which we normalize into our schema.
     """
     trust_data = ml_result.get('trust', {})
-    # ML returns trust.trust_score (int 0-100)
-    trust_score_raw = trust_data.get('trust_score', 50)
-    trust_score = int(round(trust_score_raw))
+    trust_score = extract_ml_trust_score(ml_result, log_prefix='[DOC-VERIFY]')
 
     result_summary = {
         'label': label or '',

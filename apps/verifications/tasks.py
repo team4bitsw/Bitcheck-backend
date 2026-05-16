@@ -16,6 +16,8 @@ from celery import shared_task
 from django.conf import settings
 from django.utils import timezone
 
+from .ml_trust_score import extract_ml_trust_score
+
 logger = logging.getLogger(__name__)
 
 
@@ -80,7 +82,7 @@ def process_verification(self, verification_id):
             sha256_hash=uf.sha256 if uf else '',
             user_email=verification.user.email if verification.user else '',
         )
-        trust_score = mock['trust']['score']
+        trust_score = extract_ml_trust_score(mock, log_prefix='[VERIFY-TASK-MOCK]')
         complete_verification(
             verification_id=verification.id,
             trust_score=trust_score,
@@ -106,7 +108,7 @@ def process_verification(self, verification_id):
         if response.status_code == 200:
             ml_result = response.json()
 
-            trust_score = ml_result.get('trust_score', 50)
+            trust_score = extract_ml_trust_score(ml_result, log_prefix='[VERIFY-TASK]')
             result_summary = ml_result.get('result_summary', {})
 
             complete_verification(

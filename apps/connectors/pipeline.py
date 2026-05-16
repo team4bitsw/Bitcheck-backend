@@ -24,6 +24,7 @@ from apps.connectors.base import InstallContext, ParsedEvent
 from apps.connectors.exceptions import QuotaExceeded
 from apps.connectors.models import ConnectorEvent
 from apps.connectors.registry import get as get_adapter
+from apps.verifications.ml_trust_score import extract_ml_trust_score
 from apps.verifications.ml_urls import normalize_ml_media_url
 from apps.verifications.models import Verification, VerificationJob
 from apps.verifications.services import (
@@ -101,9 +102,8 @@ def _call_image_ml(content: VerifiableContent, user_email: str) -> tuple[int, di
         if forensics.get(key):
             forensics[key] = normalize_ml_media_url(forensics[key], ml_base)
 
-    # New API: trust_score_out_of_100; old fallback: score
     trust_data = ml.get('trust', {})
-    trust_score = int(round(trust_data.get('trust_score_out_of_100') or trust_data.get('score', 50)))
+    trust_score = extract_ml_trust_score(ml, log_prefix='[CONNECTOR-IMAGE-ML]')
 
     result_summary = {
         'original_filename': filename,
@@ -141,7 +141,7 @@ def _call_text_ml(content: VerifiableContent) -> tuple[int, dict]:
     resp.raise_for_status()
     ml = resp.json()
 
-    trust_score = int(ml.get('trust', {}).get('trust_score', 50))
+    trust_score = extract_ml_trust_score(ml, log_prefix='[CONNECTOR-TEXT-ML]')
     result_summary = {
         'text_preview': text[:200],
         'text_length': len(text),
@@ -173,7 +173,7 @@ def _call_document_ml(content: VerifiableContent) -> tuple[int, dict]:
     resp.raise_for_status()
     ml = resp.json()
 
-    trust_score = int(ml.get('trust', {}).get('trust_score', 50))
+    trust_score = extract_ml_trust_score(ml, log_prefix='[CONNECTOR-DOC-ML]')
     result_summary = {
         'original_filename': filename,
         'mime_type': mime,
@@ -200,7 +200,7 @@ def _call_mock_ml(content: VerifiableContent, user_email: str) -> tuple[int, dic
         sha256_hash='',
         user_email=user_email,
     )
-    trust_score = int(round(mock['trust']['score']))
+    trust_score = extract_ml_trust_score(mock, log_prefix='[CONNECTOR-MOCK-ML]')
     return trust_score, mock
 
 

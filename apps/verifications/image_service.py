@@ -17,7 +17,7 @@ ML API contract (BitCheck Image Verification API):
                   run_forensics, run_c2pa, threshold
   - Max upload: 12 MB
   - Accepted: JPG, JPEG, PNG, WEBP
-  - Response: VerificationReport with trust.trust_score_out_of_100,
+  - Response: VerificationReport with trust.trust_score_out_of_100 or trust.trust_score,
               trust.final_decision, classifier, filename_analysis,
               visible_watermark_ocr, visible_watermark_template, etc.
 """
@@ -30,6 +30,7 @@ from django.db import transaction
 from django.db.models import F
 from django.utils import timezone
 
+from .ml_trust_score import extract_ml_trust_score
 from .ml_urls import normalize_ml_media_url
 from .models import Verification, VerificationJob, ImageVerificationCache
 from .services import (
@@ -83,16 +84,11 @@ def _map_ml_response(ml_result, label, image_file, file_hash):
     """
     Map the ML service response to our result_summary format.
 
-    The ML API returns fields like trust.trust_score_out_of_100 and
-    classifier.label/confidence which we normalize into our internal schema.
-    Includes backwards compat: falls back to trust.score if trust_score_out_of_100
-    is missing (older ML service versions).
+    The ML API returns trust.trust_score_out_of_100, trust.trust_score (HF), or
+    legacy trust.score; see extract_ml_trust_score().
     """
     trust_data = ml_result.get('trust', {})
-    # New API: trust.trust_score_out_of_100 (int)
-    # Old API fallback: trust.score (float)
-    trust_score_raw = trust_data.get('trust_score_out_of_100') or trust_data.get('score', 50)
-    trust_score = int(round(trust_score_raw))
+    trust_score = extract_ml_trust_score(ml_result, log_prefix='[IMAGE-VERIFY]')
 
     # Make explainability/forensic image URLs absolute
     ml_base = settings.ML_IMAGE_SERVICE_BASE_URL

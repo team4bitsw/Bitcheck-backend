@@ -21,6 +21,7 @@ from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
 
+from .ml_trust_score import extract_ml_trust_score
 from .models import Verification, VerificationJob
 from .services import (
     get_verification_cost,
@@ -41,19 +42,13 @@ def _map_text_ml_response(ml_result, text_input, label):
     """
     Map the ML text service response to our result_summary format.
     """
-    # Log raw ML keys for debugging schema mismatches
-    print(f'[TEXT-VERIFY] ML response keys: {list(ml_result.keys()) if ml_result else "None"}')
-
-    # The ML may return trust=None or omit it entirely
-    trust_data = ml_result.get('trust') or {}
-    # Try trust_score first, then score (image-style), then default 50
-    trust_score_raw = (
-        trust_data.get('trust_score')
-        or trust_data.get('score')
-        or ml_result.get('trust_score')
-        or 50
+    logger.info(
+        '[TEXT-VERIFY] ML response keys: %s',
+        list(ml_result.keys()) if ml_result else 'None',
     )
-    trust_score = int(trust_score_raw)
+
+    trust_data = ml_result.get('trust') or {}
+    trust_score = extract_ml_trust_score(ml_result, log_prefix='[TEXT-VERIFY]')
 
     result_summary = {
         'label': label or '',
