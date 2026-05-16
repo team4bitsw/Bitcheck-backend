@@ -330,6 +330,74 @@ class ConnectorOAuthCallbackView(APIView):
 class ConnectorInstallDetailView(APIView):
     permission_classes = [IsAuthenticated, IsConnectorInstallOwner]
 
+    @extend_schema(responses={200: ConnectorInstallSerializer})
+    def get(self, request, install_id):
+        """
+        Get a connector install's details + live connection status.
+
+        For Telegram installs, calls getWebhookInfo to check if the
+        webhook is active and returning live health data. For other
+        connector types, returns DB-level status fields.
+        """
+        try:
+            install = ConnectorInstall.objects.select_related('type').get(pk=install_id)
+        except ConnectorInstall.DoesNotExist:
+            return Response(
+                {'detail': 'Connector install not found.'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        self.check_object_permissions(request, install)
+
+        data = ConnectorInstallSerializer(install).data
+
+        # Enrich with live connection status
+        connection_status = {
+            'is_active': install.is_active,
+            'last_event_at': install.last_event_at,
+            'last_error_at': install.last_error_at,
+            'last_error_message': install.last_error_message or None,
+        }
+
+        if install.type.slug == 'telegram' and install.is_active:
+            connection_status.update(self._get_telegram_status(install))
+
+        data['connection_status'] = connection_status
+        return Response(data)
+
+    def _get_telegram_status(self, install):
+        """Call Telegram's getWebhookInfo to check live connection health."""
+        from apps.connectors.adapters.telegram.bot import get_webhook_info, shared_bot_token
+
+        try:
+            token = shared_bot_token()
+            info = get_webhook_info(token)
+
+            webhook_url = info.get('url', '')
+            has_webhook = bool(webhook_url)
+            pending_count = info.get('pending_update_count', 0)
+            last_error_date = info.get('last_error_date')
+            last_error_msg = info.get('last_error_message', '')
+
+            # Consider connected if webhook URL is set and no recent errors
+            connected = has_webhook and not last_error_msg
+
+            return {
+                'connected': connected,
+                'webhook_url': webhook_url,
+                'pending_update_count': pending_count,
+                'telegram_last_error_date': last_error_date,
+                'telegram_last_error_message': last_error_msg or None,
+                'max_connections': info.get('max_connections'),
+                'ip_address': info.get('ip_address'),
+            }
+        except Exception as exc:
+            logger.warning('[TELEGRAM-STATUS] getWebhookInfo failed: %s', exc)
+            return {
+                'connected': False,
+                'webhook_url': None,
+                'error': str(exc),
+            }
+
     @extend_schema(
         request=ConnectorInstallWriteSettingsSerializer,
         responses={200: ConnectorInstallSerializer},

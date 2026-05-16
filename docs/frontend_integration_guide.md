@@ -1210,7 +1210,101 @@ Triggers a simulated bank transfer to the org's virtual account via Squad's sand
 
 ---
 
-## 5. Error Handling & HTTP Status Codes
+## 5. Connectors & Telegram
+
+Connectors allow users to link external services (Telegram, Gmail, etc.) so incoming content is automatically verified. The API provides endpoints for listing connector types, managing installs, and checking connection health.
+
+### Connector Install Status
+
+`GET /api/connectors/installs/<install_id>/` — **Requires auth (session).**
+
+Returns the full install record enriched with a `connection_status` object. For **Telegram** installs, this makes a live call to the Telegram Bot API (`getWebhookInfo`) to verify the webhook is registered and healthy.
+
+**Response (200) — Telegram install:**
+```json
+{
+  "id": "uuid",
+  "type": {
+    "slug": "telegram",
+    "name": "Telegram",
+    "category": "messaging"
+  },
+  "external_account_id": "123456789",
+  "external_account_label": "@my_group",
+  "is_active": true,
+  "last_event_at": "2026-05-16T04:00:00Z",
+  "connection_status": {
+    "is_active": true,
+    "last_event_at": "2026-05-16T04:00:00Z",
+    "last_error_at": null,
+    "last_error_message": null,
+    "connected": true,
+    "webhook_url": "https://bitscheck-849221325853.europe-west1.run.app/api/connectors/webhook/telegram/",
+    "pending_update_count": 0,
+    "telegram_last_error_date": null,
+    "telegram_last_error_message": null,
+    "max_connections": 40,
+    "ip_address": "34.76.x.x"
+  }
+}
+```
+
+**Key fields for the UI:**
+
+| Field | What to display |
+|---|---|
+| `connection_status.connected` | Green/red badge — `true` means webhook is registered with no errors |
+| `connection_status.webhook_url` | The URL Telegram sends updates to (confirms your server is registered) |
+| `connection_status.pending_update_count` | Number of unprocessed updates queued at Telegram (should be 0 in healthy state) |
+| `connection_status.telegram_last_error_message` | If non-null, display as a warning — shows the last delivery failure reason |
+| `connection_status.last_event_at` | Last time the bot processed an incoming message |
+
+**Response (200) — non-Telegram install (e.g. Gmail):**
+```json
+{
+  "id": "uuid",
+  "type": { "slug": "gmail", "name": "Gmail" },
+  "is_active": true,
+  "connection_status": {
+    "is_active": true,
+    "last_event_at": "2026-05-15T12:00:00Z",
+    "last_error_at": null,
+    "last_error_message": null
+  }
+}
+```
+
+> [!TIP]
+> For non-Telegram connectors, `connection_status` reflects DB-level state only (no external API call). You can still infer health from `last_event_at` recency and `last_error_message`.
+
+**Frontend implementation (JavaScript):**
+```javascript
+const getConnectorStatus = async (installId) => {
+  const response = await fetch(`/api/connectors/installs/${installId}/`, {
+    credentials: 'include',
+  });
+
+  if (!response.ok) return null;
+
+  const data = await response.json();
+  const status = data.connection_status;
+
+  return {
+    connected: status.connected ?? status.is_active,
+    webhookUrl: status.webhook_url,
+    pendingUpdates: status.pending_update_count ?? 0,
+    lastError: status.telegram_last_error_message ?? status.last_error_message,
+    lastEventAt: status.last_event_at,
+  };
+};
+```
+
+> [!IMPORTANT]
+> The Telegram status check makes a live API call to `api.telegram.org`, so it adds ~200–500ms of latency. Don't poll this on a tight interval — check on page load or on user action (e.g., a "Refresh Status" button).
+
+---
+
+## 6. Error Handling & HTTP Status Codes
 
 All error responses include a `detail` string. Validation errors may include field-level errors.
 
@@ -1314,6 +1408,12 @@ or
 | `POST` | `/api/verifications/verify/image/` | Session or Bearer | Direct image verification (2 bits from user or org wallet) |
 | `POST` | `/api/verifications/verify/text/` | Session or Bearer | Direct text verification (1 bit from user or org wallet) |
 | `POST` | `/api/verifications/verify/document/` | Session or Bearer | Direct document verification (3 bits from user or org wallet) |
+| `GET` | `/api/connectors/types/` | Session | List available connector types |
+| `GET` | `/api/connectors/installs/` | Session | List user's/org's connector installs |
+| `GET` | `/api/connectors/installs/<id>/` | Session | Get install detail + live connection status |
+| `PATCH` | `/api/connectors/installs/<id>/` | Session | Update install settings |
+| `DELETE` | `/api/connectors/installs/<id>/` | Session | Deactivate install |
+| `POST` | `/api/connectors/install/<slug>/begin/` | Session | Begin connector installation flow |
 | `POST` | `/api/webhooks/squad/` | HMAC | Squad payment webhook (server-to-server) |
 | `GET` | `/api/schema/` | Public | OpenAPI 3.0 JSON schema |
 | `GET` | `/api/docs/` | Public | Swagger UI (interactive) |
